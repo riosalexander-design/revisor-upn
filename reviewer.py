@@ -85,7 +85,7 @@ def evaluate_project(uploaded_files, normative_folder, api_key):
         "1. REPORTE METODOLÓGICO: Identifica debilidades metodológicas, de diseño y estadísticas.\n"
         "2. REPORTE BIBLIOGRÁFICO: Verifica la relevancia científica de fuentes (priorizando PubMed, SciELO, etc.).\n"
         "3. REPORTE ESTILO VANCOUVER: Revisa la alineación estricta a las normas Vancouver.\n"
-        "4. REPORTE NORMATIVA UPN: Verifica cumplimiento de formatos y normativa institucional.\n\n"
+        "4. REPORTE NORMATIVA INSTITUCIONAL: Verifica cumplimiento de formatos y normativa institucional.\n\n"
         "Para CADA debilidad encontrada en estas 4 secciones, mantén ESTRICTAMENTE este formato:\n"
         "OBSERVACIÓN: [Descripción puntual y precisa del error]\n"
         "EXPLICACIÓN: [Motivos con sustento]\n"
@@ -112,7 +112,7 @@ def evaluate_project(uploaded_files, normative_folder, api_key):
     for attempt in range(5):
         try:
             response = client.models.generate_content(
-                model='gemini-3.5-flash',
+                model='gemini-2.5-flash',
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=sys_instruction,
@@ -144,4 +144,4 @@ def evaluate_project(uploaded_files, normative_folder, api_key):
         except Exception as e:
             if attempt == 4:
                 return {"report": f"Error durante la evaluación: {str(e)}", "metadata": {}}
-            time.sleep(5 * (attempt + 1))
+            time.sleep(10 * (attempt + 1))

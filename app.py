@@ -2,80 +2,102 @@ import streamlit as st
 import os
 import json
 import datetime
+import mercadopago
 from dotenv import load_dotenv
 from reviewer import evaluate_project
 
 # Load environment variables
 load_dotenv()
 
-st.set_page_config(page_title="Revisor de Proyectos UPN", layout="wide")
+st.set_page_config(page_title="Revisor de Proyectos de Investigación", layout="wide")
 
-DB_FILE = "db.json"
+st.title("Revisor de Proyectos de Investigación")
+st.markdown("#### Elaborado por PerspectaSalud")
+st.write("Esta herramienta evalúa los documentos de investigación usando agentes especializados en metodología, bibliografía, estilo Vancouver y normativa institucional.")
 
-def load_db():
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except:
-            return []
-    return []
-
-def save_db(db_list):
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(db_list, f, indent=4)
-
-db = load_db()
-
-st.title("Revisor de Proyectos de Investigación - UPN")
-st.markdown("#### Ideación y elaboración: Mg. Alexander N. Rios Rios")
-st.write("Esta herramienta evalúa los documentos de investigación usando agentes especializados en metodología, bibliografía, estilo Vancouver y normativa de la Universidad Privada del Norte (UPN).")
-
-# Se leerá de Secrets si está en la nube (st.secrets), o de .env si está local
+# Configuración de Llaves Maestras
 api_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
+mp_access_token = st.secrets.get("MP_ACCESS_TOKEN", os.getenv("MP_ACCESS_TOKEN", ""))
+APP_URL = st.secrets.get("APP_URL", "https://revisor-upn-nckbmqfpnmyfp8atlqscth.streamlit.app/")
+PRECIO_INFORME = 10.00  # Puedes cambiar este precio luego
+
+# Estado de Pago
+is_paid = st.session_state.get("is_paid", False)
+
+# Si el usuario regresa de Mercado Pago, la URL tendrá un "?status=approved"
+query_params = st.query_params
+if "status" in query_params and query_params["status"] == "approved":
+    is_paid = True
+    st.session_state["is_paid"] = True
+    # Limpiar los parámetros para evitar confusiones
+    st.query_params.clear()
 
 with st.sidebar:
-    st.header("Configuración")
-    input_api_key = st.text_input("Gemini API Key", value=api_key, type="password")
-    if input_api_key:
-        api_key = input_api_key
-        
+    st.image("https://cdn-icons-png.flaticon.com/512/3003/3003035.png", width=100) # Un ícono temporal genérico
+    st.markdown("### Acerca de PerspectaSalud")
+    st.write("Somos expertos en validación metodológica y normativa de proyectos de investigación en salud.")
     st.markdown("---")
-    st.markdown("### Ranking de Proyectos")
     
-    # Sort DB by score descending
-    db_sorted = sorted(db, key=lambda x: x.get("score", 0), reverse=True)
+    # Bypass de Administrador (Para ti)
+    admin_code = st.text_input("Admin PIN", type="password", placeholder="PIN Secreto")
+    if admin_code == "PERSPECTA2026":
+        is_paid = True
+        st.session_state["is_paid"] = True
+        st.success("Modo Admin Activado (Acceso Gratuito)")
+
+# --- MURO DE PAGO ---
+if not is_paid:
+    st.warning(f"🔒 El analizador automatizado por IA se encuentra bloqueado. El costo por generación de informe profundo es de **S/ {PRECIO_INFORME:.2f}**.")
     
-    for idx, item in enumerate(db_sorted):
-        folder_name = item.get("folder_name", "Desconocido")
-        score = item.get("score", 0)
-        has_ethics = item.get("has_ethics", False)
-        has_grave_obs = item.get("has_grave_obs_before_methodology", True)
-        
-        if not has_grave_obs and not has_ethics:
-            color = "red"
-        elif has_ethics:
-            color = "blue"
-        else:
-            color = "black"
+    if not mp_access_token:
+        st.info("🛠️ El sistema de pagos está en mantenimiento. Vuelve más tarde.")
+    else:
+        # Generar Link de Pago Dinámico
+        sdk = mercadopago.SDK(mp_access_token)
+        preference_data = {
+            "items": [
+                {
+                    "title": "Informe de Revisión - PerspectaSalud",
+                    "quantity": 1,
+                    "unit_price": PRECIO_INFORME,
+                    "currency_id": "PEN"
+                }
+            ],
+            "back_urls": {
+                "success": APP_URL,
+                "failure": APP_URL,
+                "pending": APP_URL
+            },
+            "auto_return": "approved"
+        }
+        try:
+            preference_response = sdk.preference().create(preference_data)
+            init_point = preference_response["response"]["init_point"]
+            # Botón que redirige a Mercado Pago
+            st.link_button("🔓 Pagar con Yape / Tarjeta para Desbloquear", init_point, type="primary")
+        except Exception as e:
+            st.error("Ocurrió un error al generar el enlace de pago.")
             
-        st.markdown(f"<span style='color:{color}; font-weight:bold;'>{score}pts - {folder_name}</span>", unsafe_allow_html=True)
+    # Detenemos la aplicación aquí para que no puedan ver ni usar el formulario de subida
+    st.stop()
 
+# --- APLICACIÓN DESBLOQUEADA ---
+st.success("✅ Acceso concedido. Puedes proceder con la evaluación de los documentos.")
 
-st.markdown("### 1. Datos del Estudiante / Proyecto")
-project_name = st.text_input("Nombre del autor o proyecto (para el ranking y descarga):", placeholder="Ej. Coronado-Elias")
+st.markdown("### 1. Datos del Proyecto")
+project_name = st.text_input("Nombre del autor o proyecto (para la descarga):", placeholder="Ej. Coronado-Elias")
 
 st.markdown("### 2. Documentos del Proyecto")
 uploaded_files = st.file_uploader("Sube aquí los archivos del proyecto (PDF, DOCX, TXT, XLSX, CSV):", accept_multiple_files=True)
 
-# Por defecto, la carpeta de normativas ahora estará en el mismo directorio del código
+# Por defecto, la carpeta de normativas estará en el mismo directorio del código
 normative_folder = "./normativas"
 if not os.path.exists(normative_folder):
     os.makedirs(normative_folder)
 
 if st.button("Iniciar Revisión", type="primary"):
     if not api_key:
-        st.error("Por favor, ingresa tu Gemini API Key en la barra lateral.")
+        st.error("Error interno: Falta la API Key de Gemini.")
     elif not project_name:
         st.error("Por favor, ingresa el nombre del proyecto.")
     elif not uploaded_files:
@@ -88,22 +110,6 @@ if st.button("Iniciar Revisión", type="primary"):
                 st.error(result)
             else:
                 report = result.get("report", "Error recuperando el reporte.")
-                metadata = result.get("metadata", {})
-                score = metadata.get("score", 0)
-                
-                # Update DB
-                # Remove previous evaluation for this project if exists
-                db = [item for item in db if item.get("folder_name") != project_name]
-                
-                # Append new evaluation
-                db.append({
-                    "folder_name": project_name,
-                    "score": score,
-                    "has_ethics": metadata.get("has_ethics", False),
-                    "has_grave_obs_before_methodology": metadata.get("has_grave_obs_before_methodology", True),
-                    "date": datetime.datetime.now().strftime("%d%m%Y")
-                })
-                save_db(db)
                 
                 st.success("¡Revisión completada!")
                 st.markdown("### Informe de Revisión del Proyecto")
