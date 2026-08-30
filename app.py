@@ -18,7 +18,7 @@ st.markdown("##### 🧬 Plataforma Inteligente de Evaluación Científica | **Pe
 api_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
 mp_access_token = st.secrets.get("MP_ACCESS_TOKEN", os.getenv("MP_ACCESS_TOKEN", ""))
 APP_URL = st.secrets.get("APP_URL", "https://revisordetesis.streamlit.app/")
-PRECIO_INFORME = 3.80  # Precio neuromarketing equivalente a 1 USD
+PRECIO_INFORME = 4.90  # Precio introductorio
 
 # Estado de Pago
 is_paid = st.session_state.get("is_paid", False)
