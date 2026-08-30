@@ -18,7 +18,7 @@ st.markdown("##### 🧬 Plataforma Inteligente de Evaluación Científica | **Pe
 api_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
 mp_access_token = st.secrets.get("MP_ACCESS_TOKEN", os.getenv("MP_ACCESS_TOKEN", ""))
 APP_URL = st.secrets.get("APP_URL", "https://revisor-upn-nckbmqfpnmyfp8atlqscth.streamlit.app/")
-PRECIO_INFORME = 10.00  # Puedes cambiar este precio luego
+PRECIO_INFORME = 3.00  # Precio actualizado a 3 soles
 
 # Estado de Pago
 is_paid = st.session_state.get("is_paid", False)
