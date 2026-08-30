@@ -109,39 +109,56 @@ def evaluate_project(uploaded_files, normative_folder, api_key):
         f"Considera la siguiente normativa/rúbrica de la universidad:\n{upn_normative}"
     )
 
-    for attempt in range(5):
-        try:
-            response = client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=sys_instruction,
-                    temperature=0.2,
-                )
-            )
-            
-            raw_report = response.text
-            
-            metadata = {
-                "score": 0,
-                "has_ethics": False,
-                "has_grave_obs_before_methodology": True
-            }
-            report_clean = raw_report
-            
-            json_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_report, re.DOTALL)
-            if json_match:
-                try:
-                    metadata = json.loads(json_match.group(1))
-                    report_clean = raw_report[:json_match.start()].strip()
-                except:
-                    pass
+    models_to_try = [
+        'gemini-3.6-flash',
+        'gemini-3.5-flash',
+        'gemini-3.7-flash',
+        'gemini-flash-latest'
+    ]
+    
+    last_error = ""
 
-            return {
-                "report": report_clean,
-                "metadata": metadata
-            }
-        except Exception as e:
-            if attempt == 4:
-                return {"report": f"Error durante la evaluación: {str(e)}", "metadata": {}}
-            time.sleep(10 * (attempt + 1))
+    for model_name in models_to_try:
+        for attempt in range(3): # Reintenta 3 veces por cada modelo
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=sys_instruction,
+                        temperature=0.2,
+                    )
+                )
+                
+                raw_report = response.text
+                
+                metadata = {
+                    "score": 0,
+                    "has_ethics": False,
+                    "has_grave_obs_before_methodology": True
+                }
+                report_clean = raw_report
+                
+                json_match = re.search(r'```json\s*(\{.*?\})\s*```', raw_report, re.DOTALL)
+                if json_match:
+                    try:
+                        metadata = json.loads(json_match.group(1))
+                        report_clean = raw_report[:json_match.start()].strip()
+                    except:
+                        pass
+
+                return {
+                    "report": report_clean,
+                    "metadata": metadata
+                }
+                
+            except Exception as e:
+                last_error = str(e)
+                # Si el modelo no existe o está bloqueado para esta API Key (404), no perdemos tiempo reintentando, pasamos al siguiente modelo.
+                if "404" in last_error or "NOT_FOUND" in last_error or "is no longer available" in last_error:
+                    break 
+                
+                # Si es un error de saturación temporal (503), esperamos un poco y reintentamos con el mismo modelo
+                time.sleep(5 * (attempt + 1))
+                
+    return {"report": f"Error Crítico: Servidores de IA saturados. Se intentó conectar con todos los modelos disponibles sin éxito. Último error: {last_error}", "metadata": {}}
