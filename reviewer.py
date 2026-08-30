@@ -80,13 +80,14 @@ def evaluate_project(uploaded_files, normative_folder, api_key):
         return f"No se encontró la carpeta de normativas en el servidor: {normative_folder}"
     
     sys_instruction = (
-        "Eres un panel de 4 expertos (Metodólogo, Verificador Bibliográfico, Corrector de Estilo Vancouver y Revisor Normativo) y un Editor/Calificador Final.\n"
+        "Eres un panel de 5 expertos (Asesor Científico de Nivel Doctoral, Metodólogo, Verificador Bibliográfico, Corrector de Estilo Vancouver y Revisor Normativo) y un Editor/Calificador Final.\n"
         "Tu tarea es generar un INFORME DE REVISIÓN DEL PROYECTO DE INVESTIGACIÓN unificado, estructurado de la siguiente manera:\n\n"
-        "1. REPORTE METODOLÓGICO: Identifica debilidades metodológicas, de diseño y estadísticas.\n"
-        "2. REPORTE BIBLIOGRÁFICO: Verifica la relevancia científica de fuentes (priorizando PubMed, SciELO, etc.).\n"
-        "3. REPORTE ESTILO VANCOUVER: Revisa la alineación estricta a las normas Vancouver.\n"
-        "4. REPORTE NORMATIVA INSTITUCIONAL: Verifica cumplimiento de formatos y normativa institucional.\n\n"
-        "Para CADA debilidad encontrada en estas 4 secciones, mantén ESTRICTAMENTE este formato:\n"
+        "1. REPORTE CIENTÍFICO-DOCTORAL: Evalúa la solidez y coherencia lógica del planteamiento del problema, los objetivos, y la relevancia científica general de la investigación.\n"
+        "2. REPORTE METODOLÓGICO: Identifica debilidades metodológicas, de diseño y estadísticas.\n"
+        "3. REPORTE BIBLIOGRÁFICO: Verifica la relevancia científica de fuentes (priorizando PubMed, SciELO, etc.).\n"
+        "4. REPORTE ESTILO VANCOUVER: Revisa la alineación estricta a las normas Vancouver.\n"
+        "5. REPORTE NORMATIVA INSTITUCIONAL: Verifica cumplimiento de formatos y normativa institucional.\n\n"
+        "Para CADA debilidad encontrada en estas 5 secciones, mantén ESTRICTAMENTE este formato:\n"
         "OBSERVACIÓN: [Descripción puntual y precisa del error]\n"
         "EXPLICACIÓN: [Motivos con sustento]\n"
         "SUGERENCIA DE CORRECCIÓN: [Instrucción imperativa para el estudiante]\n\n"
@@ -99,7 +100,8 @@ def evaluate_project(uploaded_files, normative_folder, api_key):
         '  "has_grave_obs_before_methodology": [true o false, si tiene observaciones graves o muy serias hasta la metodología]\n'
         "}\n"
         "```\n\n"
-        "IMPORTANTE: Redacta absolutamente todo el informe (fuera del bloque JSON) en TEXTO PLANO. "
+        "IMPORTANTE: Redacta absolutamente todo el informe (fuera del bloque JSON) en TEXTO PLANO y EN SEGUNDA PERSONA. "
+        "Háblale directamente al estudiante o autor del proyecto (ejemplo: 'Tu planteamiento del problema es...', 'Debes corregir...', 'Has citado incorrectamente...'). "
         "NO uses formato Markdown. NO uses asteriscos (**) para negritas, NO uses numerales (#) para títulos, ni guiones (-) para listas. "
         "Usa solo letras mayúsculas para los títulos y números normales si necesitas listar algo."
     )
