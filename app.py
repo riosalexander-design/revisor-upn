@@ -64,19 +64,19 @@ import streamlit.components.v1 as components
 col_main, col_ad = st.columns([3, 1])
 
 with col_ad:
+    st.markdown("### Patrocinado")
+    st.image("https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=500&q=80", caption="Asesoría Estadística Avanzada para Tesis Médicas. ¡Contáctanos hoy!")
+    st.markdown("[Solicitar Asesoría](https://www.google.com.pe)")
+    # Nota para Alexander: Aquí se puede inyectar el código HTML real de Google AdSense más adelante.
+    
+    st.divider()
+
     st.markdown("### 📊 Tráfico en Vivo")
     st.caption("Visitas por país/región")
     html_code = """
     <a href="https://info.flagcounter.com/OA6D"><img src="https://s01.flagcounter.com/countxl/OA6D/bg_FFFFFF/txt_000000/border_CCCCCC/columns_2/maxflags_4/viewers_Usuarios/labels_0/pageviews_1/flags_0/percent_0/" alt="Flag Counter" border="0"></a>
     """
     components.html(html_code, height=180)
-    
-    st.divider()
-
-    st.markdown("### Patrocinado")
-    st.image("https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=500&q=80", caption="Asesoría Estadística Avanzada para Tesis Médicas. ¡Contáctanos hoy!")
-    st.markdown("[Solicitar Asesoría](https://www.google.com.pe)")
-    # Nota para Alexander: Aquí se puede inyectar el código HTML real de Google AdSense más adelante.
     
     st.divider()
     
