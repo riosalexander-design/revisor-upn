@@ -66,10 +66,8 @@ col_main, col_ad = st.columns([3, 1])
 with col_ad:
     st.markdown("### 📊 Tráfico en Vivo")
     st.caption("Visitas por país/región")
-    # Usamos un widget de FlagCounter gratuito. 
-    # Alexander puede reemplazar esta URL creando su propio contador en flagcounter.com
     html_code = """
-    <a href="https://info.flagcounter.com/83u"><img src="https://s11.flagcounter.com/count2/83u/bg_FFFFFF/txt_000000/border_CCCCCC/columns_2/maxflags_6/viewers_3/labels_1/pageviews_1/flags_0/percent_0/" alt="Flag Counter" border="0"></a>
+    <a href="https://info.flagcounter.com/OA6D"><img src="https://s01.flagcounter.com/countxl/OA6D/bg_FFFFFF/txt_000000/border_CCCCCC/columns_2/maxflags_4/viewers_Usuarios/labels_0/pageviews_1/flags_0/percent_0/" alt="Flag Counter" border="0"></a>
     """
     components.html(html_code, height=180)
     
