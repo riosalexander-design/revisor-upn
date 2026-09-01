@@ -134,6 +134,13 @@ def evaluate_project(uploaded_files, normative_folder, api_key):
                 
                 raw_report = response.text
                 
+                # Corrección de Mojibake (Si la API devuelve texto mal decodificado en ISO-8859-1 en lugar de UTF-8)
+                try:
+                    raw_report = raw_report.encode('latin-1').decode('utf-8')
+                except UnicodeError:
+                    pass
+                
+                
                 metadata = {
                     "score": 0,
                     "has_ethics": False,
