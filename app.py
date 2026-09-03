@@ -178,23 +178,24 @@ def review():
                 if st.button("Validar código", use_container_width=True):
                     if ACCESS_CODE and code.strip() == str(ACCESS_CODE).strip(): 
                         st.session_state.paid=True
+                        st.session_state.is_admin=True
                         st.rerun()
                     else: st.error("El código no es válido.")
             if st.button("← Volver al inicio"): st.session_state.page="home"; st.rerun()
-            
-            # ADMIN DASHBOARD ACCESO SECRETO
-            if code == ACCESS_CODE and code != "":
-                st.divider()
-                st.write("📊 **Panel de Administrador (CRM Local)**")
-                if os.path.isfile(CRM_FILE):
-                    with open(CRM_FILE, "rb") as f:
-                        st.download_button("Descargar Base de Datos de Clientes (CSV)", data=f, file_name="CRM_PerspectaSalud.csv", mime="text/csv")
-                else:
-                    st.write("No hay clientes registrados aún.")
             return
 
         # ==================== APLICACIÓN DESBLOQUEADA ====================
         st.success("Acceso confirmado. Ya puedes cargar tu proyecto.")
+        
+        # Panel Secreto del Administrador
+        if st.session_state.get("is_admin"):
+            st.write("📊 **Panel Secreto de Administrador**")
+            if os.path.isfile(CRM_FILE):
+                with open(CRM_FILE, "rb") as f:
+                    st.download_button("📥 Descargar Base de Datos (CSV)", data=f, file_name="CRM_PerspectaSalud.csv", mime="text/csv")
+            else:
+                st.info("No hay proyectos procesados aún.")
+            st.divider()
         
         # EL CANDADO DE 1 SOLO USO: Si ya hay reporte, ocultamos el formulario
         if st.session_state.get("report"):
