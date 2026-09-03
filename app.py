@@ -1,10 +1,14 @@
 import datetime
 import hmac
 import os
+import io
+import csv
 from pathlib import Path
 
 import mercadopago
 import streamlit as st
+import docx
+import requests
 from dotenv import load_dotenv
 
 from reviewer import evaluate_project
@@ -16,8 +20,37 @@ PRICE = 4.90
 APP_URL = st.secrets.get("APP_URL", os.getenv("APP_URL", "https://revisordetesis.streamlit.app/"))
 API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
 MP_TOKEN = st.secrets.get("MP_ACCESS_TOKEN", os.getenv("MP_ACCESS_TOKEN", ""))
-ACCESS_CODE = st.secrets.get("INSTITUTIONAL_CODE", os.getenv("INSTITUTIONAL_CODE", ""))
+# Aceptamos ambas para que no haya problemas si usó la mía o la nueva
+ACCESS_CODE = st.secrets.get("ADMIN_PASSWORD", st.secrets.get("INSTITUTIONAL_CODE", "PERSPECTA2026"))
 NORMATIVAS = Path(__file__).parent / "normativas"
+
+# CRM Local Database
+CRM_FILE = "clientes_crm.csv"
+def registrar_operacion(proyecto, nivel, etapa):
+    try:
+        file_exists = os.path.isfile(CRM_FILE)
+        with open(CRM_FILE, mode='a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow(["Fecha", "Proyecto", "Nivel", "Etapa"])
+            date_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            writer.writerow([date_str, proyecto, nivel, etapa])
+    except:
+        pass
+
+def create_docx(report_text, project_name):
+    doc = docx.Document()
+    doc.add_heading("Informe de Auditoría Científica", 0)
+    doc.add_heading(f"Proyecto: {project_name}", 1)
+    doc.add_paragraph(f"Generado por: PerspectaSalud\nFecha: {datetime.datetime.now().strftime('%d/%m/%Y')}")
+    
+    for para in report_text.split("\n\n"):
+        if para.strip():
+            doc.add_paragraph(para.strip())
+            
+    bio = io.BytesIO()
+    doc.save(bio)
+    return bio.getvalue()
 
 CSS = """
 <style>
@@ -37,6 +70,19 @@ h1,h2,h3{color:var(--navy);letter-spacing:-.03em}.anchor{scroll-margin-top:80px}
 """
 st.markdown(CSS, unsafe_allow_html=True)
 
+# Google Analytics Inject
+ga_code = """
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-J2NW5JD21D"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-J2NW5JD21D');
+</script>
+"""
+import streamlit.components.v1 as components
+components.html(ga_code, height=0, width=0)
 
 def nav():
     st.markdown("""<nav class="nav"><div class="brand">Perspecta <span>Salud</span></div><div class="navlinks"><a href="#inicio">Inicio</a><a href="#como">Cómo funciona</a><a href="#evaluamos">Qué evaluamos</a><a href="#informe">Informe</a><a href="#faq">Preguntas frecuentes</a><a class="cta" href="#empezar">Revisar mi proyecto →</a></div></nav>""", unsafe_allow_html=True)
@@ -60,27 +106,50 @@ def payment_link():
 def landing():
     nav()
     st.markdown(f"""
-    <main><section id="inicio" class="hero anchor"><div><div class="eyebrow">Revisión académica inteligente</div><h1>Mejora tu proyecto de investigación con una revisión inteligente</h1><p>Recibe observaciones claras, criterios de cumplimiento y recomendaciones para fortalecer tu trabajo académico.</p><div class="actions"><a class="button" href="#empezar">Revisar mi proyecto →</a><a class="textlink" href="#informe">Ver informe de ejemplo ›</a></div><div class="trust"><span>Basada en rúbrica</span><span>Informe descargable</span><span>Documentos confidenciales</span></div></div><div class="hero-media"><img src="https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&w=1200&q=86" alt="Estudiante trabajando en su investigación"><div class="score"><small>Resultado general</small><b>78</b><small>Buen avance</small></div></div></section>
+    <main><section id="inicio" class="hero anchor"><div><div class="eyebrow">Revisión académica inteligente</div><h1>Mejora tu proyecto de investigación con una revisión inteligente</h1><p>Recibe observaciones claras, criterios de cumplimiento y recomendaciones para fortalecer tu trabajo académico.</p><div class="actions"><a class="button" href="#empezar">Revisar mi proyecto →</a><a class="textlink" href="#informe">Ver informe de ejemplo ›</a></div><div class="trust"><span>Basada en rúbrica</span><span>Informe descargable en Word</span><span>Documentos confidenciales</span></div></div><div class="hero-media"><img src="https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&w=1200&q=86" alt="Estudiante trabajando en su investigación"><div class="score"><small>Resultado general</small><b>78</b><small>Buen avance</small></div></div></section>
     <section class="stats"><div class="stat"><strong>5</strong><span>áreas evaluadas</span></div><div class="stat"><strong>⏱</strong><span>Informe en minutos</span></div><div class="stat"><strong>24/7</strong><span>Siempre disponible</span></div><div class="stat"><strong>S/ {PRICE:.2f}</strong><span>Precio introductorio</span></div></section>
-    <section id="como" class="section anchor"><div class="head"><h2>¿Cómo funciona?</h2><p>Cuatro pasos sencillos para saber qué debes mejorar.</p></div><div class="steps"><article class="step"><div class="number">1</div><h3>Selecciona</h3><p>Elige la revisión que se adapta a tu proyecto.</p></article><article class="step"><div class="number">2</div><h3>Paga</h3><p>Realiza el pago en línea de forma segura.</p></article><article class="step"><div class="number">3</div><h3>Carga</h3><p>Sube tu proyecto y anexos relevantes.</p></article><article class="step"><div class="number">4</div><h3>Descarga</h3><p>Recibe observaciones y recomendaciones.</p></article></div></section>
+    <section id="como" class="section anchor"><div class="head"><h2>¿Cómo funciona?</h2><p>Cuatro pasos sencillos para saber qué debes mejorar.</p></div><div class="steps"><article class="step"><div class="number">1</div><h3>Selecciona</h3><p>Elige la revisión que se adapta a tu proyecto.</p></article><article class="step"><div class="number">2</div><h3>Paga</h3><p>Realiza el pago en línea de forma segura.</p></article><article class="step"><div class="number">3</div><h3>Carga</h3><p>Sube tu proyecto y anexos relevantes.</p></article><article class="step"><div class="number">4</div><h3>Descarga</h3><p>Recibe observaciones y recomendaciones en formato Word profesional.</p></article></div></section>
     <section id="evaluamos" class="section soft anchor"><div class="head"><h2>Descubre qué debes mejorar</h2><p>Evaluamos tu proyecto con criterios académicos en cinco áreas clave.</p></div><div class="areas"><article class="card"><h3>⚛ Coherencia científica</h3><div class="meter"><i style="width:82%"></i></div><small>Problema, objetivos e hipótesis</small></article><article class="card"><h3>▣ Metodología</h3><div class="meter"><i style="width:74%"></i></div><small>Diseño, población e instrumentos</small></article><article class="card"><h3>▤ Fuentes bibliográficas</h3><div class="meter"><i style="width:76%"></i></div><small>Actualidad y pertinencia</small></article><article class="card"><h3>❞ Estilo de citación</h3><div class="meter"><i style="width:80%"></i></div><small>Aplicación del estilo solicitado</small></article><article class="card"><h3>♢ Normativa institucional</h3><div class="meter"><i></i></div><small>Estructura y requisitos formales</small></article></div><div class="human"><img src="https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=1200&q=86" alt="Estudiantes revisando un proyecto"><div class="quote"><b>“</b><p>Observaciones claras para que sepas por dónde empezar y qué aspectos requieren mayor atención.</p><small>Una revisión diseñada para estudiantes y asesores</small></div></div></section>
     <section id="informe" class="section anchor"><div class="head"><h2>Conoce el informe que recibirás</h2><p>Resultados organizados para convertir las observaciones en acciones concretas.</p></div><div class="report"><div class="report-card"><div class="tabs"><b>Resumen</b><span>Observaciones</span><span>Recomendaciones</span></div><div class="result"><div><div class="donut">78</div><p style="text-align:center;color:var(--cyan);font-weight:700">Buen avance</p></div><div><div class="bar">Coherencia científica<i></i></div><div class="bar">Metodología<i style="background:linear-gradient(90deg,var(--cyan) 74%,#e5edf4 74%)"></i></div><div class="bar">Fuentes bibliográficas<i style="background:linear-gradient(90deg,var(--cyan) 76%,#e5edf4 76%)"></i></div><div class="bar">Estilo de citación<i style="background:linear-gradient(90deg,var(--cyan) 80%,#e5edf4 80%)"></i></div></div></div></div><div class="benefits"><div><b>✓ Observaciones claras</b><span>Identifica los puntos que necesitan atención.</span></div><div><b>✓ Recomendaciones aplicables</b><span>Conoce qué acción realizar en cada criterio.</span></div><div><b>🔒 Documento confidencial</b><span>Solo tú tendrás acceso al informe.</span></div></div></div></section>
-    <section id="empezar" class="section anchor"><div class="price"><div><h3>Revisión introductoria</h3><p style="color:var(--muted)">Ideal para proyectos de grado y posgrado.</p><div class="amount">S/ {PRICE:.2f}</div><small>Precio promocional por tiempo limitado.</small></div><div class="checks"><div>Evaluación basada en rúbrica</div><div>Observaciones y recomendaciones</div><div>Informe descargable</div></div><div><a class="button" href="#activar">Revisar ahora →</a></div></div></section>
+    <section id="empezar" class="section anchor"><div class="price"><div><h3>Revisión introductoria</h3><p style="color:var(--muted)">Ideal para proyectos de grado y posgrado.</p><div class="amount">S/ {PRICE:.2f}</div><small>Precio promocional por tiempo limitado.</small></div><div class="checks"><div>Evaluación basada en rúbrica</div><div>Observaciones y recomendaciones</div><div>Informe descargable en Word (.docx)</div></div><div><a class="button" href="#activar">Revisar ahora →</a></div></div></section>
     <section class="section"><div class="head"><h2>Tu investigación merece confidencialidad</h2></div><div class="security"><article><h3>🛡 Archivos protegidos</h3><p>Se procesan únicamente para generar la evaluación.</p></article><article><h3>🧠 Uso responsable de IA</h3><p>La IA asiste; la decisión académica final corresponde a expertos.</p></article><article><h3>◷ Eliminación programada</h3><p>Los archivos temporales no se conservan indefinidamente.</p></article></div></section>
     <section id="faq" class="section anchor"><div class="head"><h2>Preguntas frecuentes</h2></div><div class="faq"><details><summary>¿Qué proyectos pueden revisar?</summary><p>Trabajos de pregrado y posgrado compatibles con la rúbrica habilitada.</p></details><details><summary>¿Mis documentos están seguros?</summary><p>Se usan únicamente para generar tu evaluación.</p></details><details><summary>¿Cuánto demora?</summary><p>Generalmente pocos minutos, según la extensión.</p></details><details><summary>¿Reemplaza a mi asesor?</summary><p>No. Complementa la orientación académica profesional.</p></details></div></section>
-    <section class="final"><div><h2>¿Listo para mejorar tu proyecto?</h2><p>Identifica oportunidades de mejora y lleva tu investigación al siguiente nivel.</p></div><a class="button" href="#activar">Revisar mi proyecto →</a></section><footer class="footer"><div class="brand">Perspecta <span>Salud</span></div><div>Términos · Privacidad · Soporte · Contacto</div><div>© 2026 Perspecta Salud</div></footer></main><div id="activar" class="anchor"></div>
+    <section class="final"><div><h2>¿Listo para mejorar tu proyecto?</h2><p>Identifica oportunidades de mejora y lleva tu investigación al siguiente nivel.</p></div><a class="button" href="#activar">Revisar mi proyecto →</a></section>
     """, unsafe_allow_html=True)
+    
+    # Bloque para Iniciar / FlagCounter / Formulario
     _, center, _ = st.columns([1, 1.25, 1])
     with center:
         if st.button("Revisar mi proyecto por S/ 4.90", type="primary", use_container_width=True):
             st.session_state.page = "review"
             st.rerun()
+            
+        st.divider()
+        st.markdown("<div style='text-align: center'><h3>✉️ Contáctanos</h3><p>¿Dudas? ¿Asesoría Estadística Avanzada? Escríbenos.</p></div>", unsafe_allow_html=True)
+        with st.form("contact_form_landing"):
+            u_email = st.text_input("Tu correo electrónico:")
+            u_msg = st.text_area("Mensaje:")
+            if st.form_submit_button("Enviar Mensaje", use_container_width=True):
+                contact_email = st.secrets.get("CONTACT_EMAIL", "")
+                if contact_email and u_email:
+                    try:
+                        requests.post(f"https://formsubmit.co/ajax/{contact_email}", json={"Email": u_email, "Mensaje": u_msg})
+                        st.success("¡Mensaje enviado con éxito!")
+                    except:
+                        st.error("Error enviando el mensaje.")
+
+        st.markdown("<div style='text-align: center; margin-top: 30px;'><p>Estadísticas de la plataforma:</p></div>", unsafe_allow_html=True)
+        html_code = """<div style="text-align: center;"><a href="https://info.flagcounter.com/OA6D"><img src="https://s01.flagcounter.com/countxl/OA6D/bg_FFFFFF/txt_000000/border_CCCCCC/columns_2/maxflags_4/viewers_Usuarios/labels_0/pageviews_1/flags_0/percent_0/" alt="Flag Counter" border="0"></a></div>"""
+        components.html(html_code, height=180)
+
+    st.markdown('<footer class="footer"><div class="brand">Perspecta <span>Salud</span></div><div>Términos · Privacidad · Soporte · Contacto</div><div>© 2026 Perspecta Salud</div></footer></main><div id="activar" class="anchor"></div>', unsafe_allow_html=True)
 
 
 def review():
     nav()
     st.markdown('<div class="app-head"><div class="eyebrow">Revisión académica</div><h1>Revisa tu proyecto</h1><p>Completa el proceso y recibe un informe organizado.</p></div>', unsafe_allow_html=True)
     paid = bool(st.session_state.get("paid"))
+    
     with st.container(border=True):
         if not paid:
             st.subheader("1. Activa tu revisión")
@@ -89,42 +158,102 @@ def review():
                 try: st.link_button("Pagar de forma segura", payment_link(), type="primary", use_container_width=True)
                 except Exception: st.error("No pudimos crear el enlace de pago. Inténtalo nuevamente.")
             else: st.warning("El sistema de pagos está temporalmente en mantenimiento.")
-            with st.expander("Acceso institucional"):
+            
+            with st.expander("Acceso institucional (Administrador)"):
                 code = st.text_input("Código institucional", type="password")
                 if st.button("Validar código", use_container_width=True):
-                    if ACCESS_CODE and hmac.compare_digest(code, ACCESS_CODE): st.session_state.paid=True; st.rerun()
+                    if ACCESS_CODE and code.strip() == str(ACCESS_CODE).strip(): 
+                        st.session_state.paid=True
+                        st.rerun()
                     else: st.error("El código no es válido.")
             if st.button("← Volver al inicio"): st.session_state.page="home"; st.rerun()
+            
+            # ADMIN DASHBOARD ACCESO SECRETO
+            if code == ACCESS_CODE and code != "":
+                st.divider()
+                st.write("📊 **Panel de Administrador (CRM Local)**")
+                if os.path.isfile(CRM_FILE):
+                    with open(CRM_FILE, "rb") as f:
+                        st.download_button("Descargar Base de Datos de Clientes (CSV)", data=f, file_name="CRM_PerspectaSalud.csv", mime="text/csv")
+                else:
+                    st.write("No hay clientes registrados aún.")
             return
+
+        # ==================== APLICACIÓN DESBLOQUEADA ====================
         st.success("Acceso confirmado. Ya puedes cargar tu proyecto.")
+        
+        # EL CANDADO DE 1 SOLO USO: Si ya hay reporte, ocultamos el formulario
+        if st.session_state.get("report"):
+            st.warning("⚠️ **IMPORTANTE:** Descarga tu reporte en formato Word ahora. Si recargas o cierras esta página, tu sesión de pago expirará y tendrás que volver a pagar.")
+            st.subheader("Resultado de la revisión")
+            st.write(st.session_state.report)
+            
+            # Generar Word File
+            date=datetime.datetime.now().strftime("%d%m%Y")
+            safe="".join(c for c in st.session_state.project if c.isalnum() or c in "-_ ").strip()
+            
+            docx_data = create_docx(st.session_state.report, st.session_state.project)
+            st.download_button(
+                label="📥 Descargar Informe Completo en Word (.docx)", 
+                data=docx_data, 
+                file_name=f"Auditoria_PerspectaSalud_{safe}_{date}.docx", 
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
+                use_container_width=True
+            )
+            st.info("Para auditar un nuevo proyecto, debes recargar la página (F5) e iniciar una nueva sesión.")
+            return
+
+        # EL FORMULARIO
         st.subheader("2. Datos del proyecto")
         name = st.text_input("Nombre del autor o proyecto", placeholder="Ej. Apellido – título breve")
-        st.selectbox("Nivel académico", ["Pregrado", "Maestría", "Doctorado"])
-        st.selectbox("Etapa del trabajo", ["Proyecto de investigación", "Tesis en desarrollo", "Tesis final"])
+        nivel = st.selectbox("Nivel académico", ["Pregrado", "Maestría", "Doctorado"])
+        etapa = st.selectbox("Etapa del trabajo", ["Proyecto de investigación", "Tesis en desarrollo", "Tesis final"])
+        
+        st.write("⚠️ **Límites:** Máximo 3 archivos. Peso total máximo 20 MB.")
         files = st.file_uploader("Carga los documentos", type=["pdf","docx","txt","xlsx","csv"], accept_multiple_files=True)
         consent = st.checkbox("Confirmo que tengo autorización para procesar los documentos y acepto las condiciones de privacidad.")
+        
         if st.button("Iniciar revisión", type="primary", use_container_width=True):
             if not API_KEY: st.error("El motor de evaluación no está configurado.")
             elif not name.strip(): st.error("Ingresa el nombre del proyecto.")
             elif not files: st.error("Carga al menos un documento.")
+            elif len(files) > 3: st.error("Por favor, sube un máximo de 3 archivos consolidados.")
             elif not consent: st.error("Debes aceptar las condiciones de privacidad.")
             elif any(f.size > 20*1024*1024 for f in files): st.error("Cada archivo debe pesar como máximo 20 MB.")
             else:
-                with st.status("Analizando tu proyecto…", expanded=True) as status:
-                    st.write("Validando documentos")
-                    st.write("Aplicando los criterios de la rúbrica")
-                    result = evaluate_project(files, str(NORMATIVAS), API_KEY)
-                    status.update(label="Revisión completada", state="complete", expanded=False)
-                if isinstance(result, str): st.error(result)
-                else: st.session_state.report=result.get("report", "No fue posible recuperar el informe."); st.session_state.project=name
-        if st.session_state.get("report"):
-            st.divider(); st.subheader("Resultado de la revisión"); st.markdown(st.session_state.report)
-            date=datetime.datetime.now().strftime("%d%m%Y"); safe="".join(c for c in st.session_state.project if c.isalnum() or c in "-_ ").strip()
-            st.download_button("Descargar informe", st.session_state.report, f"{safe}_{date}.txt", "text/plain", use_container_width=True)
+                import time
+                progress_bar = st.progress(0, text="Iniciando protocolos de lectura...")
+                time.sleep(0.5)
+                progress_bar.progress(30, text="Extrayendo texto y analizando metodología estadística (SPSS)...")
+                time.sleep(1)
+                progress_bar.progress(60, text="Verificando citas, referencias y normativa institucional...")
+                time.sleep(1)
+                progress_bar.progress(85, text="Cruzando datos con el panel de expertos de IA...")
 
+                with st.status("Generando reporte de nivel doctoral...", expanded=True) as status:
+                    result = evaluate_project(files, str(NORMATIVAS), API_KEY)
+                    status.update(label="Auditoría Completada", state="complete", expanded=False)
+                
+                progress_bar.progress(100, text="¡Auditoría completada!")
+                time.sleep(0.5)
+                progress_bar.empty()
+
+                if isinstance(result, str): st.error(result)
+                else: 
+                    # Registrar en CRM
+                    registrar_operacion(name, nivel, etapa)
+                    
+                    st.session_state.report=result.get("report", "No fue posible recuperar el informe.")
+                    st.session_state.project=name
+                    st.rerun() # Recarga para ocultar el formulario
 
 payment_id = st.query_params.get("payment_id", "")
-if payment_id and verify_payment(payment_id):
-    st.session_state.paid=True; st.session_state.page="review"; st.query_params.clear()
+status = st.query_params.get("status", "")
+
+if status == "approved" and payment_id and verify_payment(payment_id):
+    st.session_state.paid=True
+    st.session_state.page="review"
+    st.query_params.clear()
+
 st.session_state.setdefault("page", "home")
 review() if st.session_state.page == "review" else landing()
