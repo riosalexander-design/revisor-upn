@@ -68,14 +68,14 @@ def evaluate_project(uploaded_files, normative_folder, api_key):
         return "No se encontraron documentos válidos o están vacíos."
 
     # Extraer texto de la carpeta de normativas local del servidor
-    upn_normative = ""
+    institutional_normative = ""
     if os.path.isdir(normative_folder):
         for root, dirs, files in os.walk(normative_folder):
             for file in files:
                 if file.lower().endswith(('.pdf', '.docx', '.txt')):
                     path = os.path.join(root, file)
-                    upn_normative += f"\n\n--- NORMATIVA: {file} ---\n\n"
-                    upn_normative += extract_text_from_local_file(path)
+                    institutional_normative += f"\n\n--- NORMATIVA: {file} ---\n\n"
+                    institutional_normative += extract_text_from_local_file(path)
     else:
         return f"No se encontró la carpeta de normativas en el servidor: {normative_folder}"
     
@@ -83,7 +83,7 @@ def evaluate_project(uploaded_files, normative_folder, api_key):
         "Eres un panel de 5 expertos (Asesor Científico de Nivel Doctoral, Metodólogo, Verificador Bibliográfico, Corrector de Estilo Vancouver y Revisor Normativo) y un Editor/Calificador Final.\n"
         "Tu tarea es generar un INFORME DE REVISIÓN DEL PROYECTO DE INVESTIGACIÓN unificado, estructurado de la siguiente manera:\n\n"
         "1. REPORTE CIENTÍFICO-DOCTORAL: Evalúa la solidez y coherencia lógica del planteamiento del problema, los objetivos, y la relevancia científica general de la investigación.\n"
-        "2. REPORTE METODOLÓGICO: Identifica debilidades metodológicas, de diseño y estadísticas.\n"
+        "2. REPORTE METODOLÓGICO: Identifica debilidades metodológicas, de diseño y estadísticas. IMPORTANTE: Si el estudio es de tipo cuantitativo, tus recomendaciones de análisis de datos deben enfocarse EXCLUSIVAMENTE en el uso del software SPSS.\n"
         "3. REPORTE BIBLIOGRÁFICO: Verifica la relevancia científica de fuentes (priorizando PubMed, SciELO, etc.).\n"
         "4. REPORTE ESTILO VANCOUVER: Revisa la alineación estricta a las normas Vancouver.\n"
         "5. REPORTE NORMATIVA INSTITUCIONAL: Verifica cumplimiento de formatos y normativa institucional.\n\n"
@@ -100,15 +100,15 @@ def evaluate_project(uploaded_files, normative_folder, api_key):
         '  "has_grave_obs_before_methodology": [true o false, si tiene observaciones graves o muy serias hasta la metodología]\n'
         "}\n"
         "```\n\n"
-        "IMPORTANTE: Redacta absolutamente todo el informe (fuera del bloque JSON) en TEXTO PLANO y EN SEGUNDA PERSONA. "
-        "Háblale directamente al estudiante o autor del proyecto (ejemplo: 'Tu planteamiento del problema es...', 'Debes corregir...', 'Has citado incorrectamente...'). "
-        "NO uses formato Markdown. NO uses asteriscos (**) para negritas, NO uses numerales (#) para títulos, ni guiones (-) para listas. "
-        "Usa solo letras mayúsculas para los títulos y números normales si necesitas listar algo."
+        "REGLAS CRÍTICAS DE REDACCIÓN:\n"
+        "- Redacta absolutamente todo el informe (fuera del bloque JSON) en TEXTO PLANO y EN SEGUNDA PERSONA. Háblale directamente al estudiante.\n"
+        "- NO uses formato Markdown (sin asteriscos, sin numerales, sin guiones para listas).\n"
+        "- NUNCA menciones las siglas UPN ni 'Universidad Privada del Norte'. Refiérete únicamente a 'la institución' o 'tu universidad'."
     )
 
     prompt = (
         f"Analiza los siguientes documentos del proyecto de investigación:\n\n{document_text}\n\n"
-        f"Considera la siguiente normativa/rúbrica de la universidad:\n{upn_normative}"
+        f"Considera la siguiente normativa/rúbrica institucional:\n{institutional_normative}"
     )
 
     models_to_try = [

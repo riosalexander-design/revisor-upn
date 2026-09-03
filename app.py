@@ -160,45 +160,56 @@ with col_main:
     # --- APLICACIÓN DESBLOQUEADA ---
     st.success("✅ Acceso concedido. Puedes proceder con la evaluación de los documentos.")
 
-    st.markdown("### 1. Datos del Proyecto")
-    project_name = st.text_input("Nombre del autor o proyecto (para la descarga):", placeholder="Ej. Coronado-Elias")
+    if "report" in st.session_state:
+        st.warning("⚠️ **IMPORTANTE:** Copia o descarga tu reporte ahora. Si recargas o cierras esta página, tu sesión de pago expirará inmediatamente para proteger tus datos.")
+        st.markdown("### Informe de Revisión del Proyecto")
+        st.write(st.session_state["report"])
+        
+        date_str = datetime.datetime.now().strftime("%d%m%Y")
+        st.download_button(
+            label="Descargar Informe en TXT",
+            data=st.session_state["report"].encode('utf-8-sig'),
+            file_name=f"Auditoria_{date_str}.txt",
+            mime="text/plain"
+        )
+        st.info("Para auditar un nuevo proyecto, debes recargar la página (F5) e iniciar una nueva sesión.")
+    else:
+        st.markdown("### 1. Datos del Proyecto")
+        project_name = st.text_input("Nombre del autor o proyecto (para la descarga):", placeholder="Ej. Coronado-Elias")
 
-    st.markdown("### 2. Documentos del Proyecto")
-    uploaded_files = st.file_uploader("Sube aquí los archivos del proyecto (PDF, DOCX, TXT, XLSX, CSV):", accept_multiple_files=True)
+        st.markdown("### 2. Documentos del Proyecto")
+        uploaded_files = st.file_uploader("Sube aquí los archivos del proyecto (PDF, DOCX, TXT, XLSX, CSV):", accept_multiple_files=True)
 
-    normative_folder = "./normativas"
-    if not os.path.exists(normative_folder):
-        os.makedirs(normative_folder)
+        normative_folder = "./normativas"
+        if not os.path.exists(normative_folder):
+            os.makedirs(normative_folder)
 
-    if st.button("Iniciar Revisión", type="primary"):
-        if not api_key:
-            st.error("Error interno: Falta la API Key de Gemini.")
-        elif not project_name:
-            st.error("Por favor, ingresa el nombre del proyecto.")
-        elif not uploaded_files:
-            st.error("Por favor, sube al menos un documento para revisar.")
-        else:
-            with st.spinner("Procesando auditoría científica. Esto puede tomar un par de minutos..."):
-                result = evaluate_project(uploaded_files, normative_folder, api_key)
-            
-            if isinstance(result, str):
-                st.error(result)
+        if st.button("Iniciar Revisión", type="primary"):
+            if not api_key:
+                st.error("Error interno: Falta la API Key de Gemini.")
+            elif not project_name:
+                st.error("Por favor, ingresa el nombre del proyecto.")
+            elif not uploaded_files:
+                st.error("Por favor, sube al menos un documento para revisar.")
             else:
-                report = result.get("report", "Error recuperando el reporte.")
+                import time
+                progress_bar = st.progress(0, text="Iniciando protocolos de lectura...")
+                time.sleep(0.5)
+                progress_bar.progress(30, text="Extrayendo texto y analizando metodología estadística (SPSS)...")
+                time.sleep(1)
+                progress_bar.progress(60, text="Verificando citas, referencias y normativa institucional...")
+                time.sleep(1)
+                progress_bar.progress(85, text="Cruzando datos con el panel de expertos de IA...")
                 
-                st.success("¡Revisión completada!")
-                st.markdown("### Informe de Revisión del Proyecto")
-                # Mostramos el reporte en pantalla (st.write respeta el texto plano y hace saltos de línea correctos)
-                st.write(report)
+                with st.spinner("Redactando informe final nivel doctoral... (esto tomará entre 1 y 2 minutos)"):
+                    result = evaluate_project(uploaded_files, normative_folder, api_key)
                 
-                # Dynamic filename
-                date_str = datetime.datetime.now().strftime("%d%m%Y")
-                download_file_name = f"{project_name}_{date_str}.txt"
+                progress_bar.progress(100, text="¡Auditoría completada!")
+                time.sleep(0.5)
+                progress_bar.empty()
                 
-                # Codificamos en utf-8-sig (con BOM) para que Windows lea las tildes perfectamente
-                st.download_button(
-                    label="Descargar Informe en TXT",
-                    data=report.encode('utf-8-sig'),
-                    file_name=download_file_name,
-                    mime="text/plain"
-                )
+                if isinstance(result, str):
+                    st.error(result)
+                else:
+                    st.session_state["report"] = result.get("report", "Error recuperando el reporte.")
+                    st.rerun()
