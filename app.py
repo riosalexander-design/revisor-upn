@@ -38,12 +38,24 @@ components.html(ga_code, height=0, width=0)
 # Estado de Pago
 is_paid = st.session_state.get("is_paid", False)
 
-# Si el usuario regresa de Mercado Pago, la URL tendrá un "?status=approved"
+# Validación de Pago Segura con Mercado Pago
 query_params = st.query_params
-if "status" in query_params and query_params["status"] == "approved":
-    is_paid = True
-    st.session_state["is_paid"] = True
-    st.query_params.clear()
+payment_id = query_params.get("payment_id") or query_params.get("collection_id")
+status = query_params.get("status")
+
+if status == "approved" and payment_id and mp_access_token:
+    # Verificación backend real contra los servidores de Mercado Pago
+    sdk = mercadopago.SDK(mp_access_token)
+    try:
+        payment_info = sdk.payment().get(payment_id)
+        if payment_info["status"] == 200 and payment_info["response"]["status"] == "approved":
+            is_paid = True
+            st.session_state["is_paid"] = True
+            st.query_params.clear()
+        else:
+            st.error("⚠️ Intento de pago inválido o falsificado.")
+    except Exception as e:
+        st.error("Error interno validando el pago con Mercado Pago.")
 
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3003/3003035.png", width=100) # Un ícono temporal genérico
@@ -51,9 +63,9 @@ with st.sidebar:
     st.write("Somos expertos en validación metodológica y normativa de proyectos de investigación en salud. Elevamos el estándar de la ciencia académica.")
     st.markdown("---")
     
-    # Bypass de Administrador (Para ti)
+    # Bypass de Administrador
     admin_code = st.text_input("Acceso Institucional", type="password", placeholder="Código de acceso")
-    if admin_code == "PERSPECTA2026":
+    if admin_code and admin_code == st.secrets.get("ADMIN_PASSWORD", "codigo_secreto_no_configurado"):
         is_paid = True
         st.session_state["is_paid"] = True
         st.success("Modo Institucional Activado")
@@ -176,16 +188,17 @@ with col_main:
                 
                 st.success("¡Revisión completada!")
                 st.markdown("### Informe de Revisión del Proyecto")
-                # Al ser texto plano sin markdown, podemos usar texto preformateado o st.text
-                st.text(report)
+                # Mostramos el reporte en pantalla (st.write respeta el texto plano y hace saltos de línea correctos)
+                st.write(report)
                 
                 # Dynamic filename
                 date_str = datetime.datetime.now().strftime("%d%m%Y")
                 download_file_name = f"{project_name}_{date_str}.txt"
                 
+                # Codificamos en utf-8-sig (con BOM) para que Windows lea las tildes perfectamente
                 st.download_button(
                     label="Descargar Informe en TXT",
-                    data=report,
+                    data=report.encode('utf-8-sig'),
                     file_name=download_file_name,
                     mime="text/plain"
                 )
