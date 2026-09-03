@@ -40,9 +40,23 @@ def registrar_operacion(proyecto, nivel, etapa):
 
 def create_docx(report_text, project_name):
     doc = docx.Document()
-    doc.add_heading("Informe de Auditoría Científica", 0)
-    doc.add_heading(f"Proyecto: {project_name}", 1)
-    doc.add_paragraph(f"Generado por: PerspectaSalud\nFecha: {datetime.datetime.now().strftime('%d/%m/%Y')}")
+    
+    # Agregar Encabezado (Header)
+    section = doc.sections[0]
+    header = section.header
+    header_para = header.paragraphs[0]
+    header_para.text = "Perspecta Salud - Revisión Académica Inteligente"
+    
+    # Agregar Pie de Página (Footer)
+    footer = section.footer
+    footer_para = footer.paragraphs[0]
+    footer_para.text = "Contacto: perspectasalud@gmail.com | Web: https://revisordetesis.streamlit.app/"
+    
+    # Títulos principales en la primera página
+    doc.add_heading("Perspecta Salud", 0)
+    doc.add_heading("Informe de Auditoría Científica", 1)
+    doc.add_heading(f"Proyecto: {project_name}", 2)
+    doc.add_paragraph(f"Fecha: {datetime.datetime.now().strftime('%d/%m/%Y')}")
     
     for para in report_text.split("\n\n"):
         if para.strip():
@@ -209,7 +223,7 @@ def review():
         nivel = st.selectbox("Nivel académico", ["Pregrado", "Maestría", "Doctorado"])
         etapa = st.selectbox("Etapa del trabajo", ["Proyecto de investigación", "Tesis en desarrollo", "Tesis final"])
         
-        st.write("⚠️ **Límites:** Máximo 3 archivos. Peso total máximo 20 MB.")
+        st.write("⚠️ **Límites:** Máximo 3 archivos. Peso total máximo 200 MB.")
         files = st.file_uploader("Carga los documentos", type=["pdf","docx","txt","xlsx","csv"], accept_multiple_files=True)
         consent = st.checkbox("Confirmo que tengo autorización para procesar los documentos y acepto las condiciones de privacidad.")
         
@@ -219,7 +233,7 @@ def review():
             elif not files: st.error("Carga al menos un documento.")
             elif len(files) > 3: st.error("Por favor, sube un máximo de 3 archivos consolidados.")
             elif not consent: st.error("Debes aceptar las condiciones de privacidad.")
-            elif any(f.size > 20*1024*1024 for f in files): st.error("Cada archivo debe pesar como máximo 20 MB.")
+            elif any(f.size > 200*1024*1024 for f in files): st.error("Cada archivo debe pesar como máximo 200 MB.")
             else:
                 import time
                 progress_bar = st.progress(0, text="Iniciando protocolos de lectura...")
