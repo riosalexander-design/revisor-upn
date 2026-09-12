@@ -97,7 +97,9 @@ def evaluate_project(uploaded_files, normative_folder, api_key):
         "{\n"
         '  "score": [tu calificación final en formato numérico],\n'
         '  "has_ethics": [true o false, si el proyecto ya cuenta con evaluación o aprobación del comité de ética],\n'
-        '  "has_grave_obs_before_methodology": [true o false, si tiene observaciones graves o muy serias hasta la metodología]\n'
+        '  "has_grave_obs_before_methodology": [true o false, si tiene observaciones graves o muy serias hasta la metodología],\n'
+        '  "project_title": "[Extrae el título exacto de la tesis/proyecto del documento. Si no está, pon \\"Título no especificado\\"]",\n'
+        '  "authors": "[Extrae el nombre del autor o autores del documento. Si no está, pon \\"Autor no especificado\\"]"\n'
         "}\n"
         "```\n\n"
         "REGLAS CRÍTICAS DE REDACCIÓN:\n"

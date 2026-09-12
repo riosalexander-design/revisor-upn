@@ -38,7 +38,7 @@ def registrar_operacion(proyecto, nivel, etapa):
     except:
         pass
 
-def create_docx(report_text, project_name):
+def create_docx(report_text, project_name, author_name):
     doc = docx.Document()
     
     # Agregar Encabezado (Header)
@@ -56,6 +56,7 @@ def create_docx(report_text, project_name):
     doc.add_heading("Perspecta Salud", 0)
     doc.add_heading("Informe de Auditoría Científica", 1)
     doc.add_heading(f"Proyecto: {project_name}", 2)
+    doc.add_heading(f"Autor(es): {author_name}", 3)
     doc.add_paragraph(f"Fecha: {datetime.datetime.now().strftime('%d/%m/%Y')}")
     
     for para in report_text.split("\n\n"):
@@ -207,7 +208,7 @@ def review():
             date=datetime.datetime.now().strftime("%d%m%Y")
             safe="".join(c for c in st.session_state.project if c.isalnum() or c in "-_ ").strip()
             
-            docx_data = create_docx(st.session_state.report, st.session_state.project)
+            docx_data = create_docx(st.session_state.report, st.session_state.project, st.session_state.get("author", "Autor Desconocido"))
             st.download_button(
                 label="📥 Descargar Informe Completo en Word (.docx)", 
                 data=docx_data, 
@@ -259,7 +260,8 @@ def review():
                     registrar_operacion(name, nivel, etapa)
                     
                     st.session_state.report=result.get("report", "No fue posible recuperar el informe.")
-                    st.session_state.project=name
+                    st.session_state.project=result.get("metadata", {}).get("project_title", name)
+                    st.session_state.author=result.get("metadata", {}).get("authors", "Autor no especificado")
                     st.rerun() # Recarga para ocultar el formulario
 
 payment_id = st.query_params.get("payment_id", "")
