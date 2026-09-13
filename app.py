@@ -116,14 +116,25 @@ h1,h2,h3{color:var(--navy);letter-spacing:-.03em}.anchor{scroll-margin-top:80px}
 """
 st.markdown(CSS, unsafe_allow_html=True)
 
-# Google Analytics Inject (Ejecutado en el DOM principal para evitar bloqueos de IFrame)
-ga_code = """<img src="dummy" style="display:none;" onerror="if(!window.ga_injected){window.ga_injected=true;var s=document.createElement('script');s.src='https://www.googletagmanager.com/gtag/js?id=G-J2NW5JD21D';s.async=true;document.head.appendChild(s);var s2=document.createElement('script');s2.innerHTML='window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag(\\'js\\',new Date());gtag(\\'config\\',\\'G-J2NW5JD21D\\');';document.head.appendChild(s2);}">"""
-st.markdown(ga_code, unsafe_allow_html=True)
+# Google Analytics Inject (IFrame con sobreescritura de URL para GA4)
+ga_code = """
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-J2NW5JD21D"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-J2NW5JD21D', {
+    'page_title' : 'Perspecta Salud',
+    'page_location': 'https://revisordetesis.streamlit.app/'
+  });
+</script>
+"""
+components.html(ga_code, height=0, width=0)
 
 LOGO_SVG = """<svg style="margin-right:8px; margin-bottom:-4px;" width="28" height="28" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><polygon points="10,30 30,18 30,82 10,70" fill="#08b8be"/><polygon points="35,15 65,15 65,85 35,85" fill="#072e68"/><polygon points="46,40 54,40 54,46 60,46 60,54 54,54 54,60 46,60 46,54 40,54 40,46 46,46" fill="#ffffff"/><polygon points="70,18 90,30 90,70 70,82" fill="#08b8be"/></svg>"""
 
 def nav():
-    st.markdown(f"""<nav class="nav"><div class="brand" style="display:flex;align-items:center;">{LOGO_SVG}Perspecta <span>Salud</span></div><div class="navlinks"><a href="#inicio">Inicio</a><a href="#como">Cómo funciona</a><a href="#evaluamos">Qué evaluamos</a><a href="#informe">Informe</a><a href="#faq">Preguntas frecuentes</a><a class="cta" href="?page=review">Revisar mi proyecto →</a></div></nav>""", unsafe_allow_html=True)
+    st.markdown(f"""<nav class="nav"><div class="brand" style="display:flex;align-items:center;">{LOGO_SVG}Perspecta <span>Salud</span></div><div class="navlinks"><a href="#inicio" onclick="document.getElementById('inicio').scrollIntoView({{behavior: 'smooth'}}); return false;">Inicio</a><a href="#como" onclick="document.getElementById('como').scrollIntoView({{behavior: 'smooth'}}); return false;">Cómo funciona</a><a href="#evaluamos" onclick="document.getElementById('evaluamos').scrollIntoView({{behavior: 'smooth'}}); return false;">Qué evaluamos</a><a href="#informe" onclick="document.getElementById('informe').scrollIntoView({{behavior: 'smooth'}}); return false;">Informe</a><a href="#faq" onclick="document.getElementById('faq').scrollIntoView({{behavior: 'smooth'}}); return false;">Preguntas frecuentes</a><a class="cta" href="?page=review">Revisar mi proyecto →</a></div></nav>""", unsafe_allow_html=True)
 
 
 def verify_payment(payment_id):
@@ -144,7 +155,7 @@ def payment_link():
 def landing():
     nav()
     st.markdown(f"""
-    <main><section id="inicio" class="hero anchor"><div><div class="eyebrow">Revisión académica inteligente</div><h1>Mejora tu proyecto de investigación con una revisión inteligente</h1><p>Recibe observaciones claras, criterios de cumplimiento y recomendaciones para fortalecer tu trabajo académico.</p><div class="actions"><a class="button" href="?page=review">Revisar mi proyecto →</a><a class="textlink" href="#informe">Ver informe de ejemplo ›</a></div><div class="trust"><span>Basada en rúbrica</span><span>Informe descargable en Word</span><span>Documentos confidenciales</span></div></div><div class="hero-media"><img src="https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&w=1200&q=86" alt="Estudiante trabajando en su investigación"><div class="score"><small>Resultado general</small><b>78</b><small>Buen avance</small></div></div></section>
+    <main><section id="inicio" class="hero anchor"><div><div class="eyebrow">Revisión académica inteligente</div><h1>Mejora tu proyecto de investigación con una revisión inteligente</h1><p>Recibe observaciones claras, criterios de cumplimiento y recomendaciones para fortalecer tu trabajo académico.</p><div class="actions"><a class="button" href="?page=review">Revisar mi proyecto →</a><a class="textlink" href="#informe" onclick="document.getElementById('informe').scrollIntoView({{behavior: 'smooth'}}); return false;">Ver informe de ejemplo ›</a></div><div class="trust"><span>Basada en rúbrica</span><span>Informe descargable en Word</span><span>Documentos confidenciales</span></div></div><div class="hero-media"><img src="https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&w=1200&q=86" alt="Estudiante trabajando en su investigación"><div class="score"><small>Resultado general</small><b>78</b><small>Buen avance</small></div></div></section>
     <section class="stats"><div class="stat"><strong>5</strong><span>áreas evaluadas</span></div><div class="stat"><strong>⏱</strong><span>Informe en minutos</span></div><div class="stat"><strong>24/7</strong><span>Siempre disponible</span></div><div class="stat"><strong>S/ {PRICE:.2f}</strong><span>Precio introductorio</span></div></section>
     <section id="como" class="section anchor"><div class="head"><h2>¿Cómo funciona?</h2><p>Cuatro pasos sencillos para saber qué debes mejorar.</p></div><div class="steps"><article class="step"><div class="number">1</div><h3>Selecciona</h3><p>Elige la revisión que se adapta a tu proyecto.</p></article><article class="step"><div class="number">2</div><h3>Paga</h3><p>Realiza el pago en línea de forma segura.</p></article><article class="step"><div class="number">3</div><h3>Carga</h3><p>Sube tu proyecto y anexos relevantes.</p></article><article class="step"><div class="number">4</div><h3>Descarga</h3><p>Recibe observaciones y recomendaciones en formato Word profesional.</p></article></div></section>
     <section id="evaluamos" class="section soft anchor"><div class="head"><h2>Descubre qué debes mejorar</h2><p>Evaluamos tu proyecto con criterios académicos en cinco áreas clave.</p></div><div class="areas"><article class="card"><h3>⚛ Coherencia científica</h3><div class="meter"><i style="width:82%"></i></div><small>Problema, objetivos e hipótesis</small></article><article class="card"><h3>▣ Metodología</h3><div class="meter"><i style="width:74%"></i></div><small>Diseño, población e instrumentos</small></article><article class="card"><h3>▤ Fuentes bibliográficas</h3><div class="meter"><i style="width:76%"></i></div><small>Actualidad y pertinencia</small></article><article class="card"><h3>❞ Estilo de citación</h3><div class="meter"><i style="width:80%"></i></div><small>Aplicación del estilo solicitado</small></article><article class="card"><h3>♢ Normativa institucional</h3><div class="meter"><i></i></div><small>Estructura y requisitos formales</small></article></div><div class="human"><img src="https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=1200&q=86" alt="Estudiantes revisando un proyecto"><div class="quote"><b>“</b><p>Observaciones claras para que sepas por dónde empezar y qué aspectos requieren mayor atención.</p><small>Una revisión diseñada para estudiantes y asesores</small></div></div></section>
