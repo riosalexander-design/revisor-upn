@@ -8,6 +8,7 @@ from pathlib import Path
 
 import mercadopago
 import streamlit as st
+import streamlit.components.v1 as components
 import docx
 import requests
 from dotenv import load_dotenv
