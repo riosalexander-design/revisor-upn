@@ -3,6 +3,7 @@ import hmac
 import os
 import io
 import csv
+import json
 from pathlib import Path
 
 import mercadopago
@@ -16,13 +17,42 @@ from reviewer import evaluate_project
 load_dotenv()
 st.set_page_config(page_title="Perspecta Salud", page_icon="📘", layout="wide", initial_sidebar_state="collapsed")
 
-PRICE = 4.90
+# Precio dinámico configurable desde los Secrets. Si no existe, usa 14.90.
+PRICE = float(st.secrets.get("PRICE", 14.90))
+
 APP_URL = st.secrets.get("APP_URL", os.getenv("APP_URL", "https://revisordetesis.streamlit.app/"))
 API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
 MP_TOKEN = st.secrets.get("MP_ACCESS_TOKEN", os.getenv("MP_ACCESS_TOKEN", ""))
 # Aceptamos ambas para que no haya problemas si usó la mía o la nueva
 ACCESS_CODE = st.secrets.get("ADMIN_PASSWORD", st.secrets.get("INSTITUTIONAL_CODE", "PERSPECTA2026"))
 NORMATIVAS = Path(__file__).parent / "normativas"
+
+# Base de datos de códigos multi-uso
+CODES_FILE = "codes_db.json"
+def get_code_uses(code_input):
+    if not os.path.exists(CODES_FILE):
+        with open(CODES_FILE, 'w') as f: json.dump({ACCESS_CODE: 99999}, f)
+    try:
+        with open(CODES_FILE, 'r') as f: return json.load(f).get(code_input, 0)
+    except: return 0
+
+def deduct_code_use(code_input):
+    if not os.path.exists(CODES_FILE): return
+    try:
+        with open(CODES_FILE, 'r') as f: db = json.load(f)
+        if db.get(code_input, 0) > 0 and code_input != ACCESS_CODE:
+            db[code_input] -= 1
+            with open(CODES_FILE, 'w') as f: json.dump(db, f)
+    except: pass
+
+def add_new_code(new_code, uses):
+    if not os.path.exists(CODES_FILE):
+        with open(CODES_FILE, 'w') as f: json.dump({ACCESS_CODE: 99999}, f)
+    try:
+        with open(CODES_FILE, 'r') as f: db = json.load(f)
+        db[new_code] = uses
+        with open(CODES_FILE, 'w') as f: json.dump(db, f)
+    except: pass
 
 # CRM Local Database
 CRM_FILE = "clientes_crm.csv"
@@ -175,13 +205,17 @@ def review():
             else: st.warning("El sistema de pagos está temporalmente en mantenimiento.")
             
             with st.expander("Acceso institucional (Administrador)"):
-                code = st.text_input("Código institucional", type="password")
-                if st.button("Validar código", use_container_width=True):
-                    if ACCESS_CODE and code.strip() == str(ACCESS_CODE).strip(): 
-                        st.session_state.paid=True
-                        st.session_state.is_admin=True
+                inst_code = st.text_input("Código institucional / pase", type="password")
+                if st.button("Desbloquear", type="secondary"):
+                    uses_left = get_code_uses(inst_code.strip())
+                    if uses_left > 0:
+                        st.session_state.paid = True
+                        st.session_state.used_code = inst_code.strip()
+                        if inst_code.strip() == ACCESS_CODE:
+                            st.session_state.is_admin = True
                         st.rerun()
-                    else: st.error("El código no es válido.")
+                    else:
+                        st.error("Código inválido o sin usos disponibles.")
             if st.button("← Volver al inicio"): st.session_state.page="home"; st.rerun()
             return
 
@@ -190,12 +224,37 @@ def review():
         
         # Panel Secreto del Administrador
         if st.session_state.get("is_admin"):
-            st.write("📊 **Panel Secreto de Administrador**")
-            if os.path.isfile(CRM_FILE):
-                with open(CRM_FILE, "rb") as f:
-                    st.download_button("📥 Descargar Base de Datos (CSV)", data=f, file_name="CRM_PerspectaSalud.csv", mime="text/csv")
-            else:
-                st.info("No hay proyectos procesados aún.")
+            st.markdown("---")
+            st.subheader("🛠️ Panel de Administrador")
+            
+            # Gestión de Códigos
+            with st.expander("🔑 Generar códigos de acceso (Tokens)"):
+                    st.write("Crea contraseñas de uso limitado para que tus alumnos no tengan que pagar con tarjeta.")
+                    col1, col2 = st.columns(2)
+                    new_code_name = col1.text_input("Nuevo código", placeholder="Ej. PROMOCION2026")
+                    new_code_uses = col2.number_input("Número de usos", min_value=1, max_value=100, value=1)
+                    if st.button("Crear código", type="primary"):
+                        if new_code_name.strip():
+                            add_new_code(new_code_name.strip(), new_code_uses)
+                            st.success(f"Código `{new_code_name.strip()}` creado con {new_code_uses} usos.")
+                        else:
+                            st.error("Ingresa un nombre para el código.")
+                    
+                    st.write("---")
+                    try:
+                        with open(CODES_FILE, 'r') as f:
+                            db = json.load(f)
+                        if len(db) > 1:
+                            st.write("**Códigos activos:**")
+                            for k, v in db.items():
+                                if k != ACCESS_CODE:
+                                    st.write(f"- `{k}`: {v} usos restantes")
+                    except: pass
+                
+                # Base de datos CRM
+                with open(CRM_FILE, "r", encoding="utf-8") as f:
+                    st.download_button("📥 Descargar Base de Datos CRM", f, file_name="clientes_crm.csv", mime="text/csv", use_container_width=True)
+                st.info("💡 Como Administrador, puedes auditar otro proyecto sin tener que volver a pagar ni recargar.")
             st.divider()
         
         # EL CANDADO DE 1 SOLO USO: Si ya hay reporte, ocultamos el formulario
@@ -218,7 +277,14 @@ def review():
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
                 use_container_width=True
             )
-            st.info("Para auditar un nuevo proyecto, debes recargar la página (F5) e iniciar una nueva sesión.")
+            
+            if st.session_state.get("is_admin"):
+                st.info("💡 Como Administrador, puedes auditar otro proyecto sin tener que volver a pagar ni recargar.")
+                if st.button("🔄 Auditar Nuevo Proyecto", type="primary", use_container_width=True):
+                    del st.session_state.report
+                    st.rerun()
+            else:
+                st.info("Para auditar un nuevo proyecto, debes recargar la página (F5) e iniciar una nueva sesión.")
             return
 
         # EL FORMULARIO
@@ -260,6 +326,9 @@ def review():
                 else: 
                     # Registrar en CRM
                     registrar_operacion(name, nivel, etapa)
+                    
+                    if st.session_state.get("used_code"):
+                        deduct_code_use(st.session_state.used_code)
                     
                     st.session_state.report=result.get("report", "No fue posible recuperar el informe.")
                     st.session_state.project=result.get("metadata", {}).get("project_title", name)
