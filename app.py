@@ -116,21 +116,7 @@ h1,h2,h3{color:var(--navy);letter-spacing:-.03em}.anchor{scroll-margin-top:80px}
 st.markdown(CSS, unsafe_allow_html=True)
 
 # Google Analytics Inject (Ejecutado en el DOM principal para evitar bloqueos de IFrame)
-ga_code = """
-<img src="dummy" onerror="
-    if(!document.getElementById('ga-script')) {
-        var s = document.createElement('script');
-        s.id = 'ga-script';
-        s.src = 'https://www.googletagmanager.com/gtag/js?id=G-J2NW5JD21D';
-        s.async = true;
-        document.head.appendChild(s);
-        
-        var s2 = document.createElement('script');
-        s2.innerHTML = 'window.dataLayer = window.dataLayer || []; function gtag(){dataLayer.push(arguments);} gtag(\\'js\\', new Date()); gtag(\\'config\\', \\'G-J2NW5JD21D\\');';
-        document.head.appendChild(s2);
-    }
-" style="display:none;">
-"""
+ga_code = """<img src="dummy" style="display:none;" onerror="if(!window.ga_injected){window.ga_injected=true;var s=document.createElement('script');s.src='https://www.googletagmanager.com/gtag/js?id=G-J2NW5JD21D';s.async=true;document.head.appendChild(s);var s2=document.createElement('script');s2.innerHTML='window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag(\\'js\\',new Date());gtag(\\'config\\',\\'G-J2NW5JD21D\\');';document.head.appendChild(s2);}">"""
 st.markdown(ga_code, unsafe_allow_html=True)
 
 def nav():
