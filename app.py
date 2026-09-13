@@ -229,32 +229,34 @@ def review():
             
             # Gestión de Códigos
             with st.expander("🔑 Generar códigos de acceso (Tokens)"):
-                    st.write("Crea contraseñas de uso limitado para que tus alumnos no tengan que pagar con tarjeta.")
-                    col1, col2 = st.columns(2)
-                    new_code_name = col1.text_input("Nuevo código", placeholder="Ej. PROMOCION2026")
-                    new_code_uses = col2.number_input("Número de usos", min_value=1, max_value=100, value=1)
-                    if st.button("Crear código", type="primary"):
-                        if new_code_name.strip():
-                            add_new_code(new_code_name.strip(), new_code_uses)
-                            st.success(f"Código `{new_code_name.strip()}` creado con {new_code_uses} usos.")
-                        else:
-                            st.error("Ingresa un nombre para el código.")
-                    
-                    st.write("---")
-                    try:
-                        with open(CODES_FILE, 'r') as f:
-                            db = json.load(f)
-                        if len(db) > 1:
-                            st.write("**Códigos activos:**")
-                            for k, v in db.items():
-                                if k != ACCESS_CODE:
-                                    st.write(f"- `{k}`: {v} usos restantes")
-                    except: pass
+                st.write("Crea contraseñas de uso limitado para que tus alumnos no tengan que pagar con tarjeta.")
+                col1, col2 = st.columns(2)
+                new_code_name = col1.text_input("Nuevo código", placeholder="Ej. PROMOCION2026")
+                new_code_uses = col2.number_input("Número de usos", min_value=1, max_value=100, value=1)
+                if st.button("Crear código", type="primary"):
+                    if new_code_name.strip():
+                        add_new_code(new_code_name.strip(), new_code_uses)
+                        st.success(f"Código `{new_code_name.strip()}` creado con {new_code_uses} usos.")
+                    else:
+                        st.error("Ingresa un nombre para el código.")
                 
-                # Base de datos CRM
+                st.write("---")
+                try:
+                    with open(CODES_FILE, 'r') as f:
+                        db = json.load(f)
+                    if len(db) > 1:
+                        st.write("**Códigos activos:**")
+                        for k, v in db.items():
+                            if k != ACCESS_CODE:
+                                st.write(f"- `{k}`: {v} usos restantes")
+                except: pass
+            
+            # Base de datos CRM
+            try:
                 with open(CRM_FILE, "r", encoding="utf-8") as f:
                     st.download_button("📥 Descargar Base de Datos CRM", f, file_name="clientes_crm.csv", mime="text/csv", use_container_width=True)
-                st.info("💡 Como Administrador, puedes auditar otro proyecto sin tener que volver a pagar ni recargar.")
+            except: pass
+            st.info("💡 Como Administrador, puedes auditar otro proyecto sin tener que volver a pagar ni recargar.")
             st.divider()
         
         # EL CANDADO DE 1 SOLO USO: Si ya hay reporte, ocultamos el formulario
