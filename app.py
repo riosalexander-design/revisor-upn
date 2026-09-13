@@ -206,13 +206,15 @@ def review():
             
             # Generar Word File
             date=datetime.datetime.now().strftime("%d%m%Y")
-            safe="".join(c for c in st.session_state.project if c.isalnum() or c in "-_ ").strip()
+            client_name = st.session_state.get("client_name", st.session_state.get("project", ""))
+            safe="".join(c for c in client_name if c.isalnum() or c in "-_ ").strip().replace(" ", "_")
+            if not safe: safe = "Proyecto"
             
             docx_data = create_docx(st.session_state.report, st.session_state.project, st.session_state.get("author", "Autor Desconocido"))
             st.download_button(
                 label="📥 Descargar Informe Completo en Word (.docx)", 
                 data=docx_data, 
-                file_name=f"Auditoria_PerspectaSalud_{safe}_{date}.docx", 
+                file_name=f"PerspectaSalud_{safe}_{date}.docx", 
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
                 use_container_width=True
             )
@@ -262,6 +264,7 @@ def review():
                     st.session_state.report=result.get("report", "No fue posible recuperar el informe.")
                     st.session_state.project=result.get("metadata", {}).get("project_title", name)
                     st.session_state.author=result.get("metadata", {}).get("authors", "Autor no especificado")
+                    st.session_state.client_name = name
                     st.rerun() # Recarga para ocultar el formulario
 
 payment_id = st.query_params.get("payment_id", "")
