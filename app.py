@@ -115,19 +115,23 @@ h1,h2,h3{color:var(--navy);letter-spacing:-.03em}.anchor{scroll-margin-top:80px}
 """
 st.markdown(CSS, unsafe_allow_html=True)
 
-# Google Analytics Inject
+# Google Analytics Inject (Ejecutado en el DOM principal para evitar bloqueos de IFrame)
 ga_code = """
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-J2NW5JD21D"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-J2NW5JD21D');
-</script>
+<img src="dummy" onerror="
+    if(!document.getElementById('ga-script')) {
+        var s = document.createElement('script');
+        s.id = 'ga-script';
+        s.src = 'https://www.googletagmanager.com/gtag/js?id=G-J2NW5JD21D';
+        s.async = true;
+        document.head.appendChild(s);
+        
+        var s2 = document.createElement('script');
+        s2.innerHTML = 'window.dataLayer = window.dataLayer || []; function gtag(){dataLayer.push(arguments);} gtag(\\'js\\', new Date()); gtag(\\'config\\', \\'G-J2NW5JD21D\\');';
+        document.head.appendChild(s2);
+    }
+" style="display:none;">
 """
-import streamlit.components.v1 as components
-components.html(ga_code, height=0, width=0)
+st.markdown(ga_code, unsafe_allow_html=True)
 
 def nav():
     st.markdown("""<nav class="nav"><div class="brand">Perspecta <span>Salud</span></div><div class="navlinks"><a href="#inicio">Inicio</a><a href="#como">Cómo funciona</a><a href="#evaluamos">Qué evaluamos</a><a href="#informe">Informe</a><a href="#faq">Preguntas frecuentes</a><a class="cta" href="?page=review">Revisar mi proyecto →</a></div></nav>""", unsafe_allow_html=True)
