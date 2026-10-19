@@ -311,61 +311,113 @@ def review():
     
     with st.container(border=True):
         if not paid:
-            st.subheader("1. Elige tu paquete y activa tu revisión")
-            default_idx = st.session_state.get("default_pack_idx", 0)
-            selected_pkg_label = st.radio(
-                "Selecciona un plan de evaluación:",
-                list(PACKAGES.keys()),
-                index=default_idx,
-                help="Si eliges el paquete de 3 o 5 evaluaciones, podrás hacer tu primera revisión hoy y recibirás un código secreto en pantalla para usar las demás cuando quieras."
+            # 1. BLOQUE GRANDE Y VISIBLE PARA INGRESAR CÓDIGO
+            st.markdown(
+                """
+                <div style="background: linear-gradient(135deg, #eef8ff 0%, #e6f9fa 100%); border: 2px solid #08b8be; border-radius: 16px; padding: 22px 26px; margin-bottom: 14px;">
+                    <div style="font-size: 12px; font-weight: 800; color: #08b8be; text-transform: uppercase; letter-spacing: .08em;">¿Ya tienes un código de paquete, promoción o QR?</div>
+                    <h2 style="margin: 4px 0 6px 0; font-size: 26px; color: #072e68;">🔑 Ingresa tu código de activación aquí</h2>
+                    <p style="margin: 0; color: #415570; font-size: 15px;">Si compraste un paquete de 3 o 5 evaluaciones, pagaste por QR o tienes un cupón promocional, escríbelo abajo para desbloquear tu revisión de inmediato:</p>
+                </div>
+                """,
+                unsafe_allow_html=True
             )
-            pkg = PACKAGES[selected_pkg_label]
-            st.write(f"Total a pagar: **S/ {pkg['price']:.2f}** ({pkg['evals']} {'evaluación' if pkg['evals'] == 1 else 'evaluaciones'}).")
-            
-            col_mp, col_qr = st.columns(2)
-            with col_mp:
-                st.markdown("##### ⚡ Opción 1: Pago Automático (Inmediato)")
-                st.caption("Paga con tarjeta, Yape o Plin vía Mercado Pago. **El sistema activará tu acceso de forma 100% automática al instante.**")
-                if MP_TOKEN:
-                    try:
-                        st.link_button(
-                            f"Pagar S/ {pkg['price']:.2f} con Mercado Pago (Automático)",
-                            payment_link(pkg["price"], pkg["title"]),
-                            type="primary",
-                            use_container_width=True
-                        )
-                    except Exception:
-                        st.error("No pudimos crear el enlace de pago. Inténtalo nuevamente.")
-                else:
-                    st.warning("El sistema de pagos automáticos está en mantenimiento.")
-
-            with col_qr:
-                st.markdown("##### 📱 Opción 2: Pago directo con QR (Billetera BIM / Otros)")
-                st.caption("¿Prefieres escanear nuestro QR directo? Realiza el pago del plan elegido y **envíanos la captura junto con tu Nombre y DNI al WhatsApp [+51 973 152 645](https://wa.me/51973152645)** para entregarte tu código de activación.")
-                with st.expander("📲 Ver código QR e instrucciones"):
-                    if QR_BIM_PATH.exists():
-                        st.image(str(QR_BIM_PATH), caption="Escanea el QR para pagar (Bim: 913152645)", width=240)
-                    st.info(
-                        "💡 **Nota importante:** El envío de captura + Nombre y DNI al WhatsApp **+51 973 152 645** es **únicamente para pagos realizados mediante este código QR**. "
-                        "Si realizas tu pago por el botón de **Mercado Pago**, el proceso sigue siendo **totalmente automático** y no necesitas enviarnos comprobante."
-                    )
-            
-            st.markdown("---")
-            with st.expander("🔑 ¿Tienes un código de paquete, promoción, QR o acceso institucional?"):
-                inst_code = st.text_input("Ingresa tu código secreto / pase", type="password")
-                if st.button("Desbloquear con código", type="secondary"):
-                    clean_code = inst_code.strip()
-                    uses_left = get_code_uses(clean_code)
-                    if uses_left > 0:
-                        st.session_state.paid = True
-                        st.session_state.used_code = clean_code
-                        if clean_code == ACCESS_CODE:
-                            st.session_state.is_admin = True
-                        else:
-                            log_code_usage(clean_code, action="Ingreso de código (Desbloqueo)")
-                        st.rerun()
+            col_code_in, col_code_btn = st.columns([3, 1])
+            with col_code_in:
+                inst_code = st.text_input(
+                    "Código de activación",
+                    type="password",
+                    placeholder="Escribe aquí tu código (Ej. PACK-XXXXX o GANATIEMPO)...",
+                    label_visibility="collapsed"
+                )
+            with col_code_btn:
+                unlock_clicked = st.button("🔓 Activar Código →", type="primary", use_container_width=True)
+            if unlock_clicked:
+                clean_code = inst_code.strip()
+                uses_left = get_code_uses(clean_code)
+                if uses_left > 0:
+                    st.session_state.paid = True
+                    st.session_state.used_code = clean_code
+                    if clean_code == ACCESS_CODE:
+                        st.session_state.is_admin = True
                     else:
-                        st.error("Código inválido o sin usos disponibles.")
+                        log_code_usage(clean_code, action="Ingreso de código (Desbloqueo)")
+                    st.rerun()
+                else:
+                    st.error("❌ Código inválido o sin usos disponibles. Verifica que esté bien escrito.")
+
+            st.markdown("---")
+
+            # 2. LOS 3 BOTONES DIRECTOS DE MERCADO PAGO (VISIBLES AL MISMO TIEMPO)
+            st.subheader("💳 ¿Aún no tienes un código? Elige tu plan y paga aquí")
+            st.write("Selecciona directamente el paquete que prefieras. **Con Mercado Pago el acceso se activa de forma 100% automática al instante:**")
+
+            if MP_TOKEN:
+                p_col1, p_col2, p_col3 = st.columns(3)
+                with p_col1:
+                    with st.container(border=True):
+                        st.markdown("#### 1 Evaluación")
+                        st.markdown("<div style='font-size:32px;font-weight:800;color:#072e68;margin:4px 0;'>S/ 4.90</div>", unsafe_allow_html=True)
+                        st.caption("1 revisión inmediata con informe descargable en Word.")
+                        try:
+                            st.link_button(
+                                "⚡ Pagar S/ 4.90 (Mercado Pago)",
+                                payment_link(4.90, "1 Evaluación - Perspecta Salud"),
+                                type="primary",
+                                use_container_width=True
+                            )
+                        except Exception:
+                            st.error("Error al generar link S/ 4.90")
+
+                with p_col2:
+                    with st.container(border=True):
+                        st.markdown("#### 🌟 3 Evaluaciones")
+                        st.markdown("<div style='font-size:32px;font-weight:800;color:#08b8be;margin:4px 0;'>S/ 14.00</div>", unsafe_allow_html=True)
+                        st.caption("1 revisión hoy + Código secreto con 2 usos adicionales (Ahorras S/ 0.70).")
+                        try:
+                            st.link_button(
+                                "⚡ Pagar S/ 14.00 (Mercado Pago)",
+                                payment_link(14.00, "Paquete 3 Evaluaciones - Perspecta Salud"),
+                                type="primary",
+                                use_container_width=True
+                            )
+                        except Exception:
+                            st.error("Error al generar link S/ 14.00")
+
+                with p_col3:
+                    with st.container(border=True):
+                        st.markdown("#### 🔥 5 Evaluaciones")
+                        st.markdown("<div style='font-size:32px;font-weight:800;color:#072e68;margin:4px 0;'>S/ 20.00</div>", unsafe_allow_html=True)
+                        st.caption("1 revisión hoy + Código secreto con 4 usos adicionales (¡Ahorras S/ 4.50!).")
+                        try:
+                            st.link_button(
+                                "⚡ Pagar S/ 20.00 (Mercado Pago)",
+                                payment_link(20.00, "Paquete 5 Evaluaciones - Perspecta Salud"),
+                                type="primary",
+                                use_container_width=True
+                            )
+                        except Exception:
+                            st.error("Error al generar link S/ 20.00")
+            else:
+                st.warning("El sistema de pagos automáticos está en mantenimiento.")
+
+            st.markdown("---")
+
+            # 3. OPCIÓN DE PAGO POR QR BIM
+            st.markdown("#### 📱 Opción alternativa: Pago con QR directo (Billetera BIM / Otros)")
+            qr_col_img, qr_col_txt = st.columns([1, 2.2])
+            with qr_col_img:
+                if QR_BIM_PATH.exists():
+                    st.image(str(QR_BIM_PATH), caption="Escanea el QR para pagar (Bim: 913152645)", width=220)
+            with qr_col_txt:
+                st.write(
+                    "Si prefieres pagar escaneando nuestro código QR directo (S/ 4.90, S/ 14.00 o S/ 20.00), realiza el pago y **envíanos la captura junto con tu Nombre y DNI a nuestro WhatsApp [+51 973 152 645](https://wa.me/51973152645)** para entregarte tu código de activación."
+                )
+                st.info(
+                    "💡 **Nota amable e importante:** El envío de la captura con tu Nombre y DNI al WhatsApp **+51 973 152 645** es **únicamente para pagos realizados mediante este código QR**. "
+                    "Si realizas tu pago con cualquiera de los botones de **Mercado Pago** de arriba, el proceso sigue siendo **100% automático** y no necesitas enviarnos comprobante."
+                )
+
             if st.button("← Volver al inicio"): st.session_state.page="home"; st.rerun()
             return
 
