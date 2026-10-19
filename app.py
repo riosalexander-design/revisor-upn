@@ -284,18 +284,19 @@ def landing():
             st.rerun()
             
         st.divider()
-        st.markdown("<div style='text-align: center'><h3>✉️ Contáctanos</h3><p>¿Dudas? ¿Asesoría Estadística Avanzada? Usa el formulario, escríbenos a <b>perspectasalud@gmail.com</b> o por WhatsApp al <b><a href='https://wa.me/51973152645' target='_blank' style='color:#08b8be;text-decoration:none;'>+51 973 152 645</a></b></p></div>", unsafe_allow_html=True)
-        with st.form("contact_form_landing"):
-            u_email = st.text_input("Tu correo electrónico:")
-            u_msg = st.text_area("Mensaje:")
-            if st.form_submit_button("Enviar Mensaje", use_container_width=True):
-                contact_email = st.secrets.get("CONTACT_EMAIL", "")
-                if contact_email and u_email:
-                    try:
-                        requests.post(f"https://formsubmit.co/ajax/{contact_email}", json={"Email": u_email, "Mensaje": u_msg})
-                        st.success("¡Mensaje enviado con éxito!")
-                    except:
-                        st.error("Error enviando el mensaje.")
+        st.markdown(
+            """
+            <div style="text-align: center; background: #f3f9ff; border: 1px solid #deebf4; border-radius: 16px; padding: 28px 20px; margin: 10px 0;">
+                <h3 style="margin-top: 0;">✉️ Contáctanos</h3>
+                <p style="color: #63738c; margin-bottom: 18px;">¿Dudas o necesitas Asesoría Estadística Avanzada? Comunícate directamente con nosotros:</p>
+                <div style="font-size: 17px; line-height: 2;">
+                    <div>📧 <b>Correo:</b> <a href="mailto:perspectasalud@gmail.com" style="color: #072e68; text-decoration: none; font-weight: 600;">perspectasalud@gmail.com</a></div>
+                    <div>💬 <b>WhatsApp:</b> <a href="https://wa.me/51973152645" target="_blank" style="color: #08b8be; text-decoration: none; font-weight: 700;">+51 973 152 645</a></div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
         st.markdown("<div style='text-align: center; margin-top: 30px;'><p>Estadísticas de la plataforma:</p></div>", unsafe_allow_html=True)
         html_code = """<div style="text-align: center;"><a href="https://info.flagcounter.com/OA6D"><img src="https://s01.flagcounter.com/countxl/OA6D/bg_FFFFFF/txt_000000/border_CCCCCC/columns_2/maxflags_4/viewers_Usuarios/labels_0/pageviews_1/flags_0/percent_0/" alt="Flag Counter" border="0"></a></div>"""
