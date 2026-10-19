@@ -252,7 +252,13 @@ def verify_payment(payment_id):
 
 
 def payment_link(price_amount, item_title):
-    data = {"items":[{"title":item_title,"quantity":1,"unit_price":float(price_amount),"currency_id":"PEN"}],"back_urls":{"success":APP_URL,"failure":APP_URL,"pending":APP_URL},"auto_return":"approved","statement_descriptor":"PERSPECTA SALUD"}
+    data = {
+        "items": [{"title": item_title, "quantity": 1, "unit_price": float(price_amount), "currency_id": "PEN"}],
+        "payment_methods": {"installments": 1, "default_installments": 1},
+        "back_urls": {"success": APP_URL, "failure": APP_URL, "pending": APP_URL},
+        "auto_return": "approved",
+        "statement_descriptor": "PERSPECTA SALUD"
+    }
     return mercadopago.SDK(MP_TOKEN).preference().create(data)["response"]["init_point"]
 
 
@@ -264,7 +270,7 @@ def landing():
     <section id="como" class="section anchor"><div class="head"><h2>¿Cómo funciona?</h2><p>Cuatro pasos sencillos para saber qué debes mejorar.</p></div><div class="steps"><article class="step"><div class="number">1</div><h3>Selecciona</h3><p>Elige el paquete de revisión que se adapta a tu proyecto.</p></article><article class="step"><div class="number">2</div><h3>Paga</h3><p>Realiza el pago en línea de forma segura.</p></article><article class="step"><div class="number">3</div><h3>Carga</h3><p>Sube tu proyecto y anexos relevantes.</p></article><article class="step"><div class="number">4</div><h3>Descarga</h3><p>Recibe observaciones y recomendaciones en formato Word profesional.</p></article></div></section>
     <section id="evaluamos" class="section soft anchor"><div class="head"><h2>Descubre qué debes mejorar</h2><p>Evaluamos tu proyecto con criterios académicos en cinco áreas clave.</p></div><div class="areas"><article class="card"><h3>⚛ Coherencia científica</h3><div class="meter"><i style="width:82%"></i></div><small>Problema, objetivos e hipótesis</small></article><article class="card"><h3>▣ Metodología</h3><div class="meter"><i style="width:74%"></i></div><small>Diseño, población e instrumentos</small></article><article class="card"><h3>▤ Fuentes bibliográficas</h3><div class="meter"><i style="width:76%"></i></div><small>Actualidad y pertinencia</small></article><article class="card"><h3>❞ Estilo de citación</h3><div class="meter"><i style="width:80%"></i></div><small>Aplicación del estilo solicitado</small></article><article class="card"><h3>♢ Normativa institucional</h3><div class="meter"><i></i></div><small>Estructura y requisitos formales</small></article></div><div class="human"><img src="https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=1200&q=86" alt="Estudiantes revisando un proyecto"><div class="quote"><b>“</b><p>Observaciones claras para que sepas por dónde empezar y qué aspectos requieren mayor atención.</p><small>Una revisión diseñada para estudiantes y asesores</small></div></div></section>
     <section id="informe" class="section anchor"><div class="head"><h2>Conoce el informe que recibirás</h2><p>Resultados organizados para convertir las observaciones en acciones concretas.</p></div><div class="report"><div class="report-card"><div class="tabs"><b>Resumen</b><span>Observaciones</span><span>Recomendaciones</span></div><div class="result"><div><div class="donut">78</div><p style="text-align:center;color:var(--cyan);font-weight:700">Buen avance</p></div><div><div class="bar">Coherencia científica<i></i></div><div class="bar">Metodología<i style="background:linear-gradient(90deg,var(--cyan) 74%,#e5edf4 74%)"></i></div><div class="bar">Fuentes bibliográficas<i style="background:linear-gradient(90deg,var(--cyan) 76%,#e5edf4 76%)"></i></div><div class="bar">Estilo de citación<i style="background:linear-gradient(90deg,var(--cyan) 80%,#e5edf4 80%)"></i></div></div></div></div><div class="benefits"><div><b>✓ Observaciones claras</b><span>Identifica los puntos que necesitan atención.</span></div><div><b>✓ Recomendaciones aplicables</b><span>Conoce qué acción realizar en cada criterio.</span></div><div><b>🔒 Documento confidencial</b><span>Solo tú tendrás acceso al informe.</span></div></div></div></section>
-    <section id="empezar" class="section anchor"><div class="head"><h2>Planes y Tarifario</h2><p>Elige una revisión individual o ahorra con nuestros paquetes de seguimiento para todo tu ciclo.</p></div><div class="price-grid"><div class="price-card"><div><h3>1 Evaluación</h3><p style="color:var(--muted);font-size:14px">Ideal para una revisión puntual antes de entregar.</p><div class="amount">S/ 4.90</div><small style="color:var(--muted)">Pago único</small><div class="checks"><div>1 evaluación completa con rúbrica</div><div>Observaciones y recomendaciones</div><div>Informe descargable en Word (.docx)</div></div></div><a class="button" style="text-align:center" href="?page=review">Elegir 1 Evaluación →</a></div><div class="price-card featured"><div class="badge-pop">Más elegido</div><div><h3>3 Evaluaciones</h3><p style="color:var(--muted);font-size:14px">Perfecto para corregir y validar tus avances.</p><div class="amount">S/ 14.00</div><small style="color:var(--cyan);font-weight:700">S/ 4.66 por evaluación</small><div class="checks"><div>1 evaluación inmediata + código por 2 usos</div><div>Úsalas cuando quieras sin caducidad</div><div>Informe descargable en Word (.docx)</div></div></div><a class="button" style="text-align:center" href="?page=review">Elegir Pack de 3 →</a></div><div class="price-card"><div><h3>5 Evaluaciones</h3><p style="color:var(--muted);font-size:14px">Para acompañar toda tu tesis o compartir con tu grupo.</p><div class="amount">S/ 20.00</div><small style="color:var(--cyan);font-weight:700">¡Solo S/ 4.00 por evaluación!</small><div class="checks"><div>1 evaluación inmediata + código por 4 usos</div><div>Máximo ahorro (Ahorras S/ 4.50)</div><div>Informe descargable en Word (.docx)</div></div></div><a class="button" style="text-align:center" href="?page=review">Elegir Pack de 5 →</a></div></div></section>
+    <section id="empezar" class="section anchor"><div class="head"><h2>Planes y Tarifario</h2><p>Elige una revisión individual o ahorra con nuestros paquetes de seguimiento para todo tu ciclo.</p></div><div class="price-grid"><div class="price-card"><div><h3>1 Evaluación</h3><p style="color:var(--muted);font-size:14px">Ideal para una revisión puntual antes de entregar.</p><div class="amount">S/ 4.90</div><small style="color:var(--muted)">Pago único</small><div class="checks"><div>1 evaluación completa con rúbrica</div><div>Observaciones y recomendaciones</div><div>Informe descargable en Word (.docx)</div></div></div><a class="button" style="text-align:center" href="?page=review&pack=1">Elegir 1 Evaluación →</a></div><div class="price-card featured"><div class="badge-pop">Más elegido</div><div><h3>3 Evaluaciones</h3><p style="color:var(--muted);font-size:14px">Perfecto para corregir y validar tus avances.</p><div class="amount">S/ 14.00</div><small style="color:var(--cyan);font-weight:700">S/ 4.66 por evaluación</small><div class="checks"><div>1 evaluación inmediata + código por 2 usos</div><div>Úsalas cuando quieras sin caducidad</div><div>Informe descargable en Word (.docx)</div></div></div><a class="button" style="text-align:center" href="?page=review&pack=3">Elegir Pack de 3 →</a></div><div class="price-card"><div><h3>5 Evaluaciones</h3><p style="color:var(--muted);font-size:14px">Para acompañar toda tu tesis o compartir con tu grupo.</p><div class="amount">S/ 20.00</div><small style="color:var(--cyan);font-weight:700">¡Solo S/ 4.00 por evaluación!</small><div class="checks"><div>1 evaluación inmediata + código por 4 usos</div><div>Máximo ahorro (Ahorras S/ 4.50)</div><div>Informe descargable en Word (.docx)</div></div></div><a class="button" style="text-align:center" href="?page=review&pack=5">Elegir Pack de 5 →</a></div></div></section>
     <section class="section"><div class="head"><h2>Tu investigación merece confidencialidad</h2></div><div class="security"><article><h3>🛡 Archivos protegidos</h3><p>Se procesan únicamente para generar la evaluación.</p></article><article><h3>🧠 Uso responsable de IA</h3><p>La IA asiste; la decisión académica final corresponde a expertos.</p></article><article><h3>◷ Eliminación programada</h3><p>Los archivos temporales no se conservan indefinidamente.</p></article></div></section>
     <section id="faq" class="section anchor"><div class="head"><h2>Preguntas frecuentes</h2></div><div class="faq"><details><summary>¿Qué proyectos pueden revisar?</summary><p>Trabajos de pregrado y posgrado compatibles con la rúbrica habilitada.</p></details><details><summary>¿Cómo funcionan los paquetes de 3 y 5 evaluaciones?</summary><p>Al pagar realizas tu primera evaluación de inmediato y el sistema te entrega en pantalla un código secreto (ej. PACK-XXXX) para usar tus evaluaciones restantes cuando quieras.</p></details><details><summary>¿Cuánto demora?</summary><p>Generalmente pocos minutos, según la extensión.</p></details><details><summary>¿Reemplaza a mi asesor?</summary><p>No. Complementa la orientación académica profesional.</p></details></div></section>
     <section class="final"><div><h2>¿Listo para mejorar tu proyecto?</h2><p>Identifica oportunidades de mejora y lleva tu investigación al siguiente nivel.</p></div><a class="button" href="?page=review">Revisar mi proyecto →</a></section>
@@ -306,10 +312,11 @@ def review():
     with st.container(border=True):
         if not paid:
             st.subheader("1. Elige tu paquete y activa tu revisión")
+            default_idx = st.session_state.get("default_pack_idx", 0)
             selected_pkg_label = st.radio(
                 "Selecciona un plan de evaluación:",
                 list(PACKAGES.keys()),
-                index=0,
+                index=default_idx,
                 help="Si eliges el paquete de 3 o 5 evaluaciones, podrás hacer tu primera revisión hoy y recibirás un código secreto en pantalla para usar las demás cuando quieras."
             )
             pkg = PACKAGES[selected_pkg_label]
@@ -529,9 +536,16 @@ def review():
 payment_id = st.query_params.get("payment_id", "")
 status = st.query_params.get("status", "")
 page_param = st.query_params.get("page", "")
+pack_param = st.query_params.get("pack", "")
 
 if page_param == "review":
     st.session_state.page = "review"
+    if pack_param == "3":
+        st.session_state.default_pack_idx = 1
+    elif pack_param == "5":
+        st.session_state.default_pack_idx = 2
+    elif pack_param == "1":
+        st.session_state.default_pack_idx = 0
     st.query_params.clear()
 
 if status == "approved" and payment_id:
