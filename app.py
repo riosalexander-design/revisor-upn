@@ -35,32 +35,114 @@ MP_TOKEN = st.secrets.get("MP_ACCESS_TOKEN", os.getenv("MP_ACCESS_TOKEN", ""))
 ACCESS_CODE = st.secrets.get("ADMIN_PASSWORD", st.secrets.get("INSTITUTIONAL_CODE", "PERSPECTA2026"))
 NORMATIVAS = Path(__file__).parent / "normativas"
 
-# Base de datos de códigos multi-uso
+# Base de datos de códigos multi-uso e historial de IPs
 CODES_FILE = "codes_db.json"
-def get_code_uses(code_input):
+CODES_LOG_FILE = "codes_usage_log.json"
+QR_BIM_PATH = Path(__file__).parent / "qr_bim.png"
+
+def _load_codes_db():
     if not os.path.exists(CODES_FILE):
-        with open(CODES_FILE, 'w') as f: json.dump({ACCESS_CODE: 99999}, f)
+        with open(CODES_FILE, 'w', encoding='utf-8') as f:
+            json.dump({ACCESS_CODE: 99999}, f)
     try:
-        with open(CODES_FILE, 'r') as f: return json.load(f).get(code_input, 0)
-    except: return 0
+        with open(CODES_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {ACCESS_CODE: 99999}
+
+def _save_codes_db(db):
+    try:
+        with open(CODES_FILE, 'w', encoding='utf-8') as f:
+            json.dump(db, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def get_code_uses(code_input):
+    db = _load_codes_db()
+    val = db.get(code_input, 0)
+    if isinstance(val, dict):
+        return val.get("remaining", 0)
+    return int(val) if isinstance(val, (int, float)) else 0
 
 def deduct_code_use(code_input):
-    if not os.path.exists(CODES_FILE): return
-    try:
-        with open(CODES_FILE, 'r') as f: db = json.load(f)
-        if db.get(code_input, 0) > 0 and code_input != ACCESS_CODE:
-            db[code_input] -= 1
-            with open(CODES_FILE, 'w') as f: json.dump(db, f)
-    except: pass
+    db = _load_codes_db()
+    if code_input in db and code_input != ACCESS_CODE:
+        val = db[code_input]
+        if isinstance(val, dict):
+            if val.get("remaining", 0) > 0:
+                val["remaining"] -= 1
+            db[code_input] = val
+        elif isinstance(val, (int, float)) and val > 0:
+            db[code_input] = int(val) - 1
+        _save_codes_db(db)
 
 def add_new_code(new_code, uses):
-    if not os.path.exists(CODES_FILE):
-        with open(CODES_FILE, 'w') as f: json.dump({ACCESS_CODE: 99999}, f)
+    db = _load_codes_db()
+    db[new_code] = {
+        "initial": int(uses),
+        "remaining": int(uses),
+        "created_at": datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+    }
+    _save_codes_db(db)
+
+def delete_code(code_to_delete):
+    db = _load_codes_db()
+    if code_to_delete in db and code_to_delete != ACCESS_CODE:
+        del db[code_to_delete]
+        _save_codes_db(db)
+
+def get_client_ip_and_location():
+    ip = "Desconocida"
     try:
-        with open(CODES_FILE, 'r') as f: db = json.load(f)
-        db[new_code] = uses
-        with open(CODES_FILE, 'w') as f: json.dump(db, f)
-    except: pass
+        headers = st.context.headers
+        if headers:
+            forwarded = headers.get("X-Forwarded-For") or headers.get("x-forwarded-for")
+            real_ip = headers.get("X-Real-Ip") or headers.get("x-real-ip")
+            if forwarded:
+                ip = forwarded.split(",")[0].strip()
+            elif real_ip:
+                ip = real_ip.strip()
+    except Exception:
+        pass
+    location = "Ubicación no disponible"
+    if ip and ip != "Desconocida" and not ip.startswith(("127.", "10.", "192.168.")):
+        try:
+            resp = requests.get(f"http://ip-api.com/json/{ip}?fields=status,country,regionName,city,isp", timeout=2.5)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("status") == "success":
+                    city = data.get("city", "")
+                    region = data.get("regionName", "")
+                    country = data.get("country", "")
+                    isp = data.get("isp", "")
+                    location = f"{city}, {region}, {country} ({isp})".strip(", ")
+        except Exception:
+            pass
+    return ip, location
+
+def log_code_usage(code_used, action="Desbloqueo"):
+    if not code_used or code_used == ACCESS_CODE:
+        return
+    ip, loc = get_client_ip_and_location()
+    logs = []
+    if os.path.exists(CODES_LOG_FILE):
+        try:
+            with open(CODES_LOG_FILE, 'r', encoding='utf-8') as f:
+                logs = json.load(f)
+        except Exception:
+            logs = []
+    logs.append({
+        "fecha": datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        "codigo": code_used,
+        "accion": action,
+        "ip": ip,
+        "ubicacion": loc
+    })
+    try:
+        with open(CODES_LOG_FILE, 'w', encoding='utf-8') as f:
+            json.dump(logs, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
 def generate_pack_code(extra_uses):
     suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=5))
@@ -70,15 +152,16 @@ def generate_pack_code(extra_uses):
 
 # CRM Local Database
 CRM_FILE = "clientes_crm.csv"
-def registrar_operacion(proyecto, nivel, etapa):
+def registrar_operacion(proyecto, nivel, etapa, codigo_usado="Pago directo"):
     try:
+        ip, loc = get_client_ip_and_location()
         file_exists = os.path.isfile(CRM_FILE)
         with open(CRM_FILE, mode='a', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             if not file_exists:
-                writer.writerow(["Fecha", "Proyecto", "Nivel", "Etapa"])
+                writer.writerow(["Fecha", "Proyecto", "Nivel", "Etapa", "Codigo", "IP", "Ubicacion"])
             date_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            writer.writerow([date_str, proyecto, nivel, etapa])
+            writer.writerow([date_str, proyecto, nivel, etapa, codigo_usado, ip, loc])
     except:
         pass
 
@@ -94,7 +177,7 @@ def create_docx(report_text, project_name, author_name):
     # Agregar Pie de Página (Footer)
     footer = section.footer
     footer_para = footer.paragraphs[0]
-    footer_para.text = "Contacto: perspectasalud@gmail.com | Web: https://revisordetesis.streamlit.app/"
+    footer_para.text = "Contacto: perspectasalud@gmail.com | WhatsApp: +51 973 152 645 | Web: https://revisordetesis.streamlit.app/"
     
     # Títulos principales en la primera página
     doc.add_heading("Perspecta Salud", 0)
@@ -195,7 +278,7 @@ def landing():
             st.rerun()
             
         st.divider()
-        st.markdown("<div style='text-align: center'><h3>✉️ Contáctanos</h3><p>¿Dudas? ¿Asesoría Estadística Avanzada? Usa el formulario o escríbenos a perspectasalud@gmail.com</p></div>", unsafe_allow_html=True)
+        st.markdown("<div style='text-align: center'><h3>✉️ Contáctanos</h3><p>¿Dudas? ¿Asesoría Estadística Avanzada? Usa el formulario, escríbenos a <b>perspectasalud@gmail.com</b> o por WhatsApp al <b><a href='https://wa.me/51973152645' target='_blank' style='color:#08b8be;text-decoration:none;'>+51 973 152 645</a></b></p></div>", unsafe_allow_html=True)
         with st.form("contact_form_landing"):
             u_email = st.text_input("Tu correo electrónico:")
             u_msg = st.text_area("Mensaje:")
@@ -212,7 +295,7 @@ def landing():
         html_code = """<div style="text-align: center;"><a href="https://info.flagcounter.com/OA6D"><img src="https://s01.flagcounter.com/countxl/OA6D/bg_FFFFFF/txt_000000/border_CCCCCC/columns_2/maxflags_4/viewers_Usuarios/labels_0/pageviews_1/flags_0/percent_0/" alt="Flag Counter" border="0"></a></div>"""
         components.html(html_code, height=180)
 
-    st.markdown(f'<footer class="footer"><div class="brand" style="display:flex;align-items:center;">{LOGO_SVG}Perspecta <span>Salud</span></div><div>Términos · Privacidad · Soporte · Contacto</div><div>© 2026 Perspecta Salud</div></footer></main><div id="activar" class="anchor"></div>', unsafe_allow_html=True)
+    st.markdown(f'<footer class="footer"><div class="brand" style="display:flex;align-items:center;">{LOGO_SVG}Perspecta <span>Salud</span></div><div>Correo: perspectasalud@gmail.com · WhatsApp: +51 973 152 645</div><div>© 2026 Perspecta Salud</div></footer></main><div id="activar" class="anchor"></div>', unsafe_allow_html=True)
 
 
 def review():
@@ -230,29 +313,49 @@ def review():
                 help="Si eliges el paquete de 3 o 5 evaluaciones, podrás hacer tu primera revisión hoy y recibirás un código secreto en pantalla para usar las demás cuando quieras."
             )
             pkg = PACKAGES[selected_pkg_label]
-            st.write(f"Total a pagar: **S/ {pkg['price']:.2f}** ({pkg['evals']} {'evaluación' if pkg['evals'] == 1 else 'evaluaciones'}). El acceso se habilita automáticamente al comprobar el pago.")
-            if MP_TOKEN:
-                try:
-                    st.link_button(
-                        f"Pagar S/ {pkg['price']:.2f} de forma segura con Mercado Pago",
-                        payment_link(pkg["price"], pkg["title"]),
-                        type="primary",
-                        use_container_width=True
-                    )
-                except Exception:
-                    st.error("No pudimos crear el enlace de pago. Inténtalo nuevamente.")
-            else:
-                st.warning("El sistema de pagos está temporalmente en mantenimiento.")
+            st.write(f"Total a pagar: **S/ {pkg['price']:.2f}** ({pkg['evals']} {'evaluación' if pkg['evals'] == 1 else 'evaluaciones'}).")
             
-            with st.expander("🔑 ¿Tienes un código de paquete, promoción o acceso institucional?"):
+            col_mp, col_qr = st.columns(2)
+            with col_mp:
+                st.markdown("##### ⚡ Opción 1: Pago Automático (Inmediato)")
+                st.caption("Paga con tarjeta, Yape o Plin vía Mercado Pago. **El sistema activará tu acceso de forma 100% automática al instante.**")
+                if MP_TOKEN:
+                    try:
+                        st.link_button(
+                            f"Pagar S/ {pkg['price']:.2f} con Mercado Pago (Automático)",
+                            payment_link(pkg["price"], pkg["title"]),
+                            type="primary",
+                            use_container_width=True
+                        )
+                    except Exception:
+                        st.error("No pudimos crear el enlace de pago. Inténtalo nuevamente.")
+                else:
+                    st.warning("El sistema de pagos automáticos está en mantenimiento.")
+
+            with col_qr:
+                st.markdown("##### 📱 Opción 2: Pago directo con QR (Billetera BIM / Otros)")
+                st.caption("¿Prefieres escanear nuestro QR directo? Realiza el pago del plan elegido y **envíanos la captura junto con tu Nombre y DNI al WhatsApp [+51 973 152 645](https://wa.me/51973152645)** para entregarte tu código de activación.")
+                with st.expander("📲 Ver código QR e instrucciones"):
+                    if QR_BIM_PATH.exists():
+                        st.image(str(QR_BIM_PATH), caption="Escanea el QR para pagar (Bim: 913152645)", width=240)
+                    st.info(
+                        "💡 **Nota importante:** El envío de captura + Nombre y DNI al WhatsApp **+51 973 152 645** es **únicamente para pagos realizados mediante este código QR**. "
+                        "Si realizas tu pago por el botón de **Mercado Pago**, el proceso sigue siendo **totalmente automático** y no necesitas enviarnos comprobante."
+                    )
+            
+            st.markdown("---")
+            with st.expander("🔑 ¿Tienes un código de paquete, promoción, QR o acceso institucional?"):
                 inst_code = st.text_input("Ingresa tu código secreto / pase", type="password")
                 if st.button("Desbloquear con código", type="secondary"):
-                    uses_left = get_code_uses(inst_code.strip())
+                    clean_code = inst_code.strip()
+                    uses_left = get_code_uses(clean_code)
                     if uses_left > 0:
                         st.session_state.paid = True
-                        st.session_state.used_code = inst_code.strip()
-                        if inst_code.strip() == ACCESS_CODE:
+                        st.session_state.used_code = clean_code
+                        if clean_code == ACCESS_CODE:
                             st.session_state.is_admin = True
+                        else:
+                            log_code_usage(clean_code, action="Ingreso de código (Desbloqueo)")
                         st.rerun()
                     else:
                         st.error("Código inválido o sin usos disponibles.")
@@ -277,33 +380,61 @@ def review():
             st.subheader("🛠️ Panel de Administrador")
             
             # Gestión de Códigos
-            with st.expander("🔑 Generar códigos de acceso (Tokens)"):
-                st.write("Crea contraseñas de uso limitado para que tus alumnos no tengan que pagar con tarjeta.")
+            with st.expander("🔑 Generar y Gestionar Códigos de Acceso (Tokens)", expanded=True):
+                st.write("Crea contraseñas de uso limitado. Los códigos creados permanecerán visibles en la lista (incluso si llegan a 0 usos) hasta que decidas eliminarlos con su botón.")
                 col1, col2 = st.columns(2)
-                new_code_name = col1.text_input("Nuevo código", placeholder="Ej. PROMOCION2026")
-                new_code_uses = col2.number_input("Número de usos", min_value=1, max_value=100, value=1)
+                new_code_name = col1.text_input("Nuevo código", placeholder="Ej. GANATIEMPO")
+                new_code_uses = col2.number_input("Número de usos", min_value=1, max_value=500, value=1)
                 if st.button("Crear código", type="primary"):
                     if new_code_name.strip():
                         add_new_code(new_code_name.strip(), new_code_uses)
                         st.success(f"Código `{new_code_name.strip()}` creado con {new_code_uses} usos.")
+                        st.rerun()
                     else:
                         st.error("Ingresa un nombre para el código.")
                 
                 st.write("---")
-                try:
-                    with open(CODES_FILE, 'r') as f:
-                        db = json.load(f)
-                    if len(db) > 1:
-                        st.write("**Códigos activos:**")
-                        for k, v in db.items():
-                            if k != ACCESS_CODE:
-                                st.write(f"- `{k}`: {v} usos restantes")
-                except: pass
+                db = _load_codes_db()
+                user_codes = {k: v for k, v in db.items() if k != ACCESS_CODE}
+                if user_codes:
+                    st.write("**📋 Todos los códigos brindados (permanentes hasta eliminar):**")
+                    for k, v in list(user_codes.items()):
+                        if isinstance(v, dict):
+                            rem_u = v.get("remaining", 0)
+                            init_u = v.get("initial", rem_u)
+                            used_u = max(0, init_u - rem_u)
+                            created_str = v.get("created_at", "")
+                            info_txt = f"🔑 **`{k}`** — Usados: **{used_u}/{init_u}** | Restantes: **{rem_u}**" + (f" *(Creado: {created_str})*" if created_str else "")
+                        else:
+                            rem_u = int(v)
+                            info_txt = f"🔑 **`{k}`** — Usos restantes: **{rem_u}**"
+                        c_info, c_del = st.columns([4, 1])
+                        c_info.markdown(info_txt)
+                        if c_del.button("🗑️ Eliminar", key=f"del_code_{k}"):
+                            delete_code(k)
+                            st.rerun()
+                else:
+                    st.caption("No hay códigos creados todavía.")
+
+            # Historial de IPs y Ubicaciones por Código
+            with st.expander("🌍 Historial de Uso de Códigos (IP y Ubicación Relativa)"):
+                if os.path.exists(CODES_LOG_FILE):
+                    try:
+                        with open(CODES_LOG_FILE, 'r', encoding='utf-8') as f:
+                            usage_logs = json.load(f)
+                        if usage_logs:
+                            st.dataframe(usage_logs, use_container_width=True)
+                        else:
+                            st.caption("Aún no se han registrado accesos con códigos.")
+                    except Exception:
+                        st.caption("No se pudo leer el historial de uso.")
+                else:
+                    st.caption("Aún no se han registrado accesos con códigos.")
             
             # Base de datos CRM
             try:
                 with open(CRM_FILE, "r", encoding="utf-8") as f:
-                    st.download_button("📥 Descargar Base de Datos CRM", f, file_name="clientes_crm.csv", mime="text/csv", use_container_width=True)
+                    st.download_button("📥 Descargar Base de Datos CRM (incluye Código, IP y Ubicación)", f, file_name="clientes_crm.csv", mime="text/csv", use_container_width=True)
             except: pass
             st.info("💡 Como Administrador, puedes auditar otro proyecto sin tener que volver a pagar ni recargar.")
             st.divider()
@@ -381,11 +512,13 @@ def review():
 
                 if isinstance(result, str): st.error(result)
                 else: 
-                    # Registrar en CRM
-                    registrar_operacion(name, nivel, etapa)
+                    used_c = st.session_state.get("used_code", "Pago directo")
+                    # Registrar en CRM con IP y Ubicación
+                    registrar_operacion(name, nivel, etapa, codigo_usado=used_c)
                     
                     if st.session_state.get("used_code"):
                         deduct_code_use(st.session_state.used_code)
+                        log_code_usage(st.session_state.used_code, action=f"Evaluación completada ({name})")
                     
                     st.session_state.report=result.get("report", "No fue posible recuperar el informe.")
                     st.session_state.project=result.get("metadata", {}).get("project_title", name)
