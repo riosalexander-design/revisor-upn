@@ -19,10 +19,16 @@ Este archivo (`AGENTS.md`) contiene la memoria histórica, decisiones de diseño
 3. **Nombre Exacto del Archivo Word Descargable:** El archivo `.docx` generado DEBE llamarse exactamente:
    `PerspectaSalud_(Nombre del autor o proyecto)_(fecha en formato ddmmaaaa).docx`
 4. **Reglas del Prompt de Evaluación (`reviewer.py`):**
-   - **Prohibido mencionar a la UPN:** En ningún lugar del reporte generado se debe mencionar a la universidad UPN.
-   - **Enfoque en SPSS:** Cuando se hagan recomendaciones de análisis de datos en estudios de tipo **cuantitativo**, el reporte debe enfocarse en el uso de **SPSS**.
-5. **Contacto en la Web:** En la sección "Contáctanos" siempre debe figurar la frase `"o escríbenos a perspectasalud@gmail.com"`.
-6. **Identidad Visual (Logo):** El logotipo de Perspecta Salud es un SVG vectorial en perspectiva isométrica de 3 columnas (`LOGO_SVG` en `app.py`), inyectado en la barra de navegación (`nav()`) y en el pie de página (`footer`). No usar pseudo-elementos CSS antiguos.
+   - **Prohibido calificar o asignar puntajes:** No mostrar calificaciones numéricas ni restar puntos para no desanimar al cliente. Cierre motivador y asertivo.
+   - **Comprensibilidad según nivel académico:** Desglosar conceptos complejos con explicaciones claras y ejemplos adaptados al nivel académico declarado (Pregrado, Maestría, Doctorado), manteniendo el rigor académico.
+   - **Realidad problemática en embudo y coherencia:** Exigir estructura desde fuentes Mundiales -> Regionales -> Nacionales -> Locales. Coherencia estricta entre problema general/específicos, objetivos, dimensiones y teoría. Las dimensiones deben insinuarse y sustentarse desde la problemática y antecedentes vinculadas a la teoría.
+   - **Antecedentes:** Exigir exactamente 5 internacionales y 5 nacionales (10 en total), ordenados de forma cronológica ascendente (del más antiguo al más reciente) y articulados con preguntas, objetivos, dimensiones y teoría.
+   - **Estadística (Naturaleza de datos y 2 mejores rutas):** Evaluar primero la naturaleza de las variables/datos (nominal, ordinal, intervalo, razón; paramétrico vs no paramétrico) y sugerir OBLIGATORIAMENTE las dos mejores rutas de análisis estadístico. Si es cuantitativo, enfocado EXCLUSIVAMENTE en SPSS con procedimientos concretos.
+   - **Sugerencias asertivas e imperativas con texto listo para insertar:** Cada sugerencia de corrección debe redactar directamente el párrafo modelo ajustado a las variables del estudiante para que lo copie y pegue directamente en su tesis.
+   - **Aspectos éticos directos:** Prohibido solicitar o sugerir revisión por Comité de Ética. Entregar directamente el texto modelo con los principios éticos y consentimientos necesarios.
+   - **Prohibido mencionar a la UPN:** En ningún lugar del reporte generado se debe mencionar a la universidad UPN (usar "la institución" o "tu universidad").
+5. **Contacto en la Web:** Correo `perspectasalud@gmail.com` y WhatsApp `+51 973 152 645`.
+6. **Identidad Visual (Logo):** Logotipo SVG vectorial en perspectiva isométrica de 3 columnas (`LOGO_SVG` en `app.py`).
 
 ---
 

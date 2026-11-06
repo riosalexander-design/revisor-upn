@@ -562,8 +562,8 @@ def review():
                 time.sleep(1)
                 progress_bar.progress(85, text="Cruzando datos con el panel de expertos de IA...")
 
-                with st.status("Generando reporte de nivel doctoral...", expanded=True) as status:
-                    result = evaluate_project(files, str(NORMATIVAS), API_KEY)
+                with st.status(f"Generando auditoría científica ({nivel})...", expanded=True) as status:
+                    result = evaluate_project(files, str(NORMATIVAS), API_KEY, academic_level=nivel, work_stage=etapa)
                     status.update(label="Auditoría Completada", state="complete", expanded=False)
                 
                 progress_bar.progress(100, text="¡Auditoría completada!")
