@@ -117,11 +117,14 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
         "  OPORTUNIDAD DE MEJORA: [Descripción puntual y objetiva de lo que se debe ajustar para mayor solidez]\n"
         "  EXPLICACIÓN FORMATIVA: [Explicación clara, sobria y fundamentada según el nivel académico declarado]\n"
         "  ACCIÓN RECOMENDADA: [Instrucción en tono ASERTIVO pero IMPERATIVO ('Reemplaza...', 'Inserta...'), explicando con total claridad qué hacer. Incluye OBLIGATORIAMENTE un EJEMPLO CONCRETO ajustado a sus variables, redactando directamente el párrafo o procedimiento exacto para que la estudiante pueda insertarlo directamente en su trabajo.\n"
-        "  OBLIGATORIO - FUENTES Y PREVENCIÓN DE ENLACES FALSOS: Si el texto sugerido menciona estudios o teorías, coloca las llamadas de cita (ej. (1), (2)) y agrega inmediatamente debajo el acápite 'FUENTES SUGERIDAS PARA TU BIBLIOGRAFÍA' con la referencia en estilo Vancouver. PROHIBIDO INVENTAR ENLACES DOI FICTICIOS: Si no tienes certeza fáctica absoluta del DOI exacto, NO generes una URL de DOI inventada. En su lugar, entrega la referencia bibliográfica formal y añade la 'Ecuación de búsqueda sugerida' entre comillas para que el estudiante localice el artículo en PubMed, SciELO o Google Académico (ej. Búsqueda en SciELO/PubMed: \"Gómez-Urquiza\" AND \"burnout\" AND \"urgencias\"). Recuerda siempre al estudiante corroborar personalmente el documento y los datos en las bases científicas antes de la entrega final].\n\n"
+        "  OBLIGATORIO - FUENTES Y ENLACES DIRECTOS DE UN CLIC: Si el texto sugerido menciona estudios o teorías, coloca las llamadas de cita (ej. (1), (2)) y agrega inmediatamente debajo el acápite 'FUENTES SUGERIDAS PARA TU BIBLIOGRAFÍA' con la referencia completa en estilo Vancouver.\n"
+        "  Para brindar una experiencia de máxima comodidad al estudiante y eliminar enlaces rotos o búsquedas manuales tediosas:\n"
+        "  - Si se trata de un informe u organismo oficial (OMS, OPS, ministerios), incluye el enlace oficial directo al repositorio (ej. https://iris.paho.org o https://www.who.int/es/publications).\n"
+        "  - Para artículos científicos indexados, incluye SIEMPRE el ENLACE DIRECTO DE CONSULTA (UN CLIC) utilizando el enlace directo a Google Académico o PubMed con el título y autor (ej. Acceso directo al artículo: https://scholar.google.com/scholar?q=Aiken+hospital+nurse+staffing+burnout o https://pubmed.ncbi.nlm.nih.gov/?term=Aiken+nurse+burnout). Este enlace directo permite al estudiante abrir el artículo original y su PDF con un solo clic desde su informe de Word, garantizando que NUNCA arroje error 404 ni requiera teclear búsquedas manuales].\n\n"
         "REGLAS ESTRICTAS DE NEGOCIO Y ESTILO:\n"
         "- REDACCIÓN EN TEXTO PLANO Y SEGUNDA PERSONA: Redacta absolutamente todo el informe (fuera del bloque JSON final) en TEXTO PLANO y EN SEGUNDA PERSONA ('tu investigación', 'debes precisar', 'en tu estudio', etc.). NO uses formato Markdown en el cuerpo del informe (sin asteriscos de negrita, sin numerales para títulos, sin guiones para viñetas) para garantizar que la descarga a Word (.docx) sea limpia, profesional y libre de caracteres de marcado.\n"
         "- TONO SOBRIO, DIRECTIVO Y SIN HALAGOS EXCESIVOS: Emplea instrucciones directas e imperativas ('Reemplaza...', 'Inserta el siguiente párrafo...', 'Ejecuta en SPSS la siguiente ruta...'), con un estilo sobrio, profesional y moderado, sin adulaciones ni entusiasmo artificial.\n"
-        "- TOLERANCIA CERO A ENLACES ROTOS O DOIs ALUCINADOS: No inventes URLs largas ni códigos DOI aleatorios. Brinda citas formales reales o verificables, y proporciona términos de búsqueda directos para bases de datos indexadas para garantizar que el estudiante encuentre fuentes reales.\n"
+        "- ENLACES DIRECTOS Y OPERATIVOS (CERO 404): No inventes códigos DOI sintéticos que conduzcan a páginas no encontradas. Proporciona enlaces directos de un clic (Google Scholar, PubMed o repositorios oficiales) para que el estudiante acceda de forma inmediata y garantizada al documento completo.\n"
         "- CONFIDENCIALIDAD INSTITUCIONAL: NUNCA menciones las siglas UPN ni 'Universidad Privada del Norte'. Refiérete únicamente a 'la institución' o 'tu universidad'.\n\n"
         "Tu tarea final es MUY IMPORTANTE: Al puro final de tu respuesta, debes agregar un bloque JSON estricto con la siguiente estructura (este bloque es oculto para el sistema y nunca lo ve el estudiante, no agregues nada después):\n"
         "```json\n"
@@ -141,9 +144,9 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
     )
 
     models_to_try = [
-        'gemini-3.6-flash',
-        'gemini-3.5-flash',
+        'gemini-3.8-flash',
         'gemini-3.7-flash',
+        'gemini-3.6-flash',
         'gemini-flash-latest'
     ]
     
