@@ -42,6 +42,9 @@ Este archivo (`AGENTS.md`) contiene la memoria histórica, decisiones de diseño
 ---
 
 ## 3. Configuración Técnica, Pagos y Analíticas
+- **Motor de Inteligencia Artificial (Estrategia C - Pro + Resiliencia Flash):**
+  - Modelo Primario: `gemini-pro-latest` y `gemini-3.1-pro-preview` (familia Gemini Pro), que ofrece máxima profundidad analítica, razonamiento doctoral avanzado, menor alucinación y prosa académica impecable por ~S/ 0.35 por revisión (manteniendo ~92% de margen bruto).
+  - Cascada de Resiliencia (Fallback): Si la API de Google reporta saturación o lentitud en los servidores Pro, el sistema conmuta automáticamente a la familia Flash (`gemini-3.8-flash`, `gemini-3.7-flash`, etc.) para asegurar que el usuario nunca experimente fallos en su entrega.
 - **Tarifario Multi-Paquete Implementado:**
   - 1 Evaluación: S/ 4.90 (desbloqueo inmediato).
   - 3 Evaluaciones: S/ 14.00 (desbloqueo inmediato de la 1.ª + generación automática de código con 2 usos).

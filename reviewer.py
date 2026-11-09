@@ -144,9 +144,10 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
     )
 
     models_to_try = [
+        'gemini-pro-latest',
+        'gemini-3.1-pro-preview',
         'gemini-3.8-flash',
         'gemini-3.7-flash',
-        'gemini-3.6-flash',
         'gemini-flash-latest'
     ]
     
