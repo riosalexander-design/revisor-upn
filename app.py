@@ -31,16 +31,91 @@ PRICE = 4.90
 APP_URL = st.secrets.get("APP_URL", os.getenv("APP_URL", "https://revisordetesis.streamlit.app/"))
 API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
 MP_TOKEN = st.secrets.get("MP_ACCESS_TOKEN", os.getenv("MP_ACCESS_TOKEN", ""))
+DATABASE_URL = st.secrets.get("DATABASE_URL", os.getenv("DATABASE_URL", ""))
 # Aceptamos ambas para que no haya problemas si usó la mía o la nueva
 ACCESS_CODE = st.secrets.get("ADMIN_PASSWORD", st.secrets.get("INSTITUTIONAL_CODE", "PERSPECTA2026"))
 NORMATIVAS = Path(__file__).parent / "normativas"
 
-# Base de datos de códigos multi-uso e historial de IPs
+# Base de datos de códigos multi-uso e historial de IPs (Respaldo local + Supabase PostgreSQL permanente)
 CODES_FILE = "codes_db.json"
 CODES_LOG_FILE = "codes_usage_log.json"
+CRM_FILE = "clientes_crm.csv"
 QR_BIM_PATH = Path(__file__).parent / "qr_bim.png"
 
+def _get_pg_conn():
+    if not DATABASE_URL:
+        return None
+    try:
+        import psycopg2
+        return psycopg2.connect(DATABASE_URL, connect_timeout=5)
+    except Exception:
+        return None
+
+@st.cache_resource
+def _init_pg_tables():
+    conn = _get_pg_conn()
+    if not conn:
+        return False
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                CREATE TABLE IF NOT EXISTS perspecta_codes (
+                    code TEXT PRIMARY KEY,
+                    initial_uses INTEGER NOT NULL,
+                    remaining_uses INTEGER NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS perspecta_codes_log (
+                    id SERIAL PRIMARY KEY,
+                    fecha TEXT NOT NULL,
+                    codigo TEXT NOT NULL,
+                    accion TEXT NOT NULL,
+                    ip TEXT,
+                    ubicacion TEXT
+                );
+                CREATE TABLE IF NOT EXISTS perspecta_crm (
+                    id SERIAL PRIMARY KEY,
+                    fecha TEXT NOT NULL,
+                    proyecto TEXT,
+                    nivel TEXT,
+                    etapa TEXT,
+                    codigo TEXT,
+                    ip TEXT,
+                    ubicacion TEXT
+                );
+                """)
+        conn.close()
+        return True
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return False
+
 def _load_codes_db():
+    _init_pg_tables()
+    conn = _get_pg_conn()
+    if conn:
+        try:
+            db = {ACCESS_CODE: 99999}
+            with conn.cursor() as cur:
+                cur.execute("SELECT code, initial_uses, remaining_uses, created_at FROM perspecta_codes ORDER BY created_at DESC;")
+                for code, init_u, rem_u, created_at in cur.fetchall():
+                    db[code] = {
+                        "initial": int(init_u),
+                        "remaining": int(rem_u),
+                        "created_at": created_at or ""
+                    }
+            conn.close()
+            return db
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
     if not os.path.exists(CODES_FILE):
         with open(CODES_FILE, 'w', encoding='utf-8') as f:
             json.dump({ACCESS_CODE: 99999}, f)
@@ -65,6 +140,26 @@ def get_code_uses(code_input):
     return int(val) if isinstance(val, (int, float)) else 0
 
 def deduct_code_use(code_input):
+    if not code_input or code_input == ACCESS_CODE:
+        return
+    _init_pg_tables()
+    conn = _get_pg_conn()
+    if conn:
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE perspecta_codes SET remaining_uses = GREATEST(0, remaining_uses - 1) WHERE code = %s;",
+                        (code_input,)
+                    )
+            conn.close()
+            return
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
     db = _load_codes_db()
     if code_input in db and code_input != ACCESS_CODE:
         val = db[code_input]
@@ -77,15 +172,58 @@ def deduct_code_use(code_input):
         _save_codes_db(db)
 
 def add_new_code(new_code, uses):
+    created_str = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+    _init_pg_tables()
+    conn = _get_pg_conn()
+    if conn:
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO perspecta_codes (code, initial_uses, remaining_uses, created_at)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (code) DO UPDATE SET
+                            initial_uses = EXCLUDED.initial_uses,
+                            remaining_uses = EXCLUDED.remaining_uses,
+                            created_at = EXCLUDED.created_at;
+                        """,
+                        (new_code, int(uses), int(uses), created_str)
+                    )
+            conn.close()
+            return
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
     db = _load_codes_db()
     db[new_code] = {
         "initial": int(uses),
         "remaining": int(uses),
-        "created_at": datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+        "created_at": created_str
     }
     _save_codes_db(db)
 
 def delete_code(code_to_delete):
+    if not code_to_delete or code_to_delete == ACCESS_CODE:
+        return
+    _init_pg_tables()
+    conn = _get_pg_conn()
+    if conn:
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM perspecta_codes WHERE code = %s;", (code_to_delete,))
+            conn.close()
+            return
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
     db = _load_codes_db()
     if code_to_delete in db and code_to_delete != ACCESS_CODE:
         del db[code_to_delete]
@@ -124,6 +262,25 @@ def log_code_usage(code_used, action="Desbloqueo"):
     if not code_used or code_used == ACCESS_CODE:
         return
     ip, loc = get_client_ip_and_location()
+    fecha_str = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    _init_pg_tables()
+    conn = _get_pg_conn()
+    if conn:
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO perspecta_codes_log (fecha, codigo, accion, ip, ubicacion) VALUES (%s, %s, %s, %s, %s);",
+                        (fecha_str, code_used, action, ip, loc)
+                    )
+            conn.close()
+            return
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
     logs = []
     if os.path.exists(CODES_LOG_FILE):
         try:
@@ -132,7 +289,7 @@ def log_code_usage(code_used, action="Desbloqueo"):
         except Exception:
             logs = []
     logs.append({
-        "fecha": datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        "fecha": fecha_str,
         "codigo": code_used,
         "accion": action,
         "ip": ip,
@@ -144,26 +301,97 @@ def log_code_usage(code_used, action="Desbloqueo"):
     except Exception:
         pass
 
+def _load_usage_logs():
+    _init_pg_tables()
+    conn = _get_pg_conn()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT fecha, codigo, accion, ip, ubicacion FROM perspecta_codes_log ORDER BY id DESC LIMIT 500;")
+                rows = cur.fetchall()
+            conn.close()
+            return [
+                {"fecha": r[0], "codigo": r[1], "accion": r[2], "ip": r[3], "ubicacion": r[4]}
+                for r in rows
+            ]
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    if os.path.exists(CODES_LOG_FILE):
+        try:
+            with open(CODES_LOG_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
 def generate_pack_code(extra_uses):
     suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=5))
     code = f"PACK-{suffix}"
     add_new_code(code, extra_uses)
     return code
 
-# CRM Local Database
-CRM_FILE = "clientes_crm.csv"
 def registrar_operacion(proyecto, nivel, etapa, codigo_usado="Pago directo"):
+    ip, loc = get_client_ip_and_location()
+    date_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    _init_pg_tables()
+    conn = _get_pg_conn()
+    if conn:
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO perspecta_crm (fecha, proyecto, nivel, etapa, codigo, ip, ubicacion) VALUES (%s, %s, %s, %s, %s, %s, %s);",
+                        (date_str, proyecto, nivel, etapa, codigo_usado, ip, loc)
+                    )
+            conn.close()
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
     try:
-        ip, loc = get_client_ip_and_location()
         file_exists = os.path.isfile(CRM_FILE)
         with open(CRM_FILE, mode='a', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             if not file_exists:
                 writer.writerow(["Fecha", "Proyecto", "Nivel", "Etapa", "Codigo", "IP", "Ubicacion"])
-            date_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             writer.writerow([date_str, proyecto, nivel, etapa, codigo_usado, ip, loc])
-    except:
+    except Exception:
         pass
+
+def _get_crm_csv_data():
+    _init_pg_tables()
+    conn = _get_pg_conn()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT fecha, proyecto, nivel, etapa, codigo, ip, ubicacion FROM perspecta_crm ORDER BY id DESC;")
+                rows = cur.fetchall()
+            conn.close()
+            out = io.StringIO()
+            writer = csv.writer(out)
+            writer.writerow(["Fecha", "Proyecto", "Nivel", "Etapa", "Codigo", "IP", "Ubicacion"])
+            for r in rows:
+                writer.writerow(r)
+            return out.getvalue().encode("utf-8-sig")
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    if os.path.exists(CRM_FILE):
+        try:
+            with open(CRM_FILE, "rb") as f:
+                return f.read()
+        except Exception:
+            return None
+    return None
 
 def create_docx(report_text, project_name, author_name):
     doc = docx.Document()
@@ -441,6 +669,10 @@ def review():
         if st.session_state.get("is_admin"):
             st.markdown("---")
             st.subheader("🛠️ Panel de Administrador")
+            if _init_pg_tables():
+                st.caption("🟢 **Base de datos permanente conectada (Supabase PostgreSQL)** — Tus códigos, logs de IP y CRM son 100% inmunes a reinicios.")
+            else:
+                st.warning("⚠️ **Aviso:** Agrega `DATABASE_URL` en los *Secrets* de Streamlit Cloud para activar la base de datos permanente.")
             
             # Gestión de Códigos
             with st.expander("🔑 Generar y Gestionar Códigos de Acceso (Tokens)", expanded=True):
@@ -467,10 +699,12 @@ def review():
                             init_u = v.get("initial", rem_u)
                             used_u = max(0, init_u - rem_u)
                             created_str = v.get("created_at", "")
-                            info_txt = f"🔑 **`{k}`** — Usados: **{used_u}/{init_u}** | Restantes: **{rem_u}**" + (f" *(Creado: {created_str})*" if created_str else "")
+                            status_badge = "🟢 **ACTIVO**" if rem_u > 0 else "🔴 **AGOTADO**"
+                            info_txt = f"{status_badge} | 🔑 **`{k}`** — Usados: **{used_u}/{init_u}** | Restantes: **{rem_u}**" + (f" *(Creado: {created_str})*" if created_str else "")
                         else:
                             rem_u = int(v)
-                            info_txt = f"🔑 **`{k}`** — Usos restantes: **{rem_u}**"
+                            status_badge = "🟢 **ACTIVO**" if rem_u > 0 else "🔴 **AGOTADO**"
+                            info_txt = f"{status_badge} | 🔑 **`{k}`** — Usos restantes: **{rem_u}**"
                         c_info, c_del = st.columns([4, 1])
                         c_info.markdown(info_txt)
                         if c_del.button("🗑️ Eliminar", key=f"del_code_{k}"):
@@ -481,24 +715,22 @@ def review():
 
             # Historial de IPs y Ubicaciones por Código
             with st.expander("🌍 Historial de Uso de Códigos (IP y Ubicación Relativa)"):
-                if os.path.exists(CODES_LOG_FILE):
-                    try:
-                        with open(CODES_LOG_FILE, 'r', encoding='utf-8') as f:
-                            usage_logs = json.load(f)
-                        if usage_logs:
-                            st.dataframe(usage_logs, use_container_width=True)
-                        else:
-                            st.caption("Aún no se han registrado accesos con códigos.")
-                    except Exception:
-                        st.caption("No se pudo leer el historial de uso.")
+                usage_logs = _load_usage_logs()
+                if usage_logs:
+                    st.dataframe(usage_logs, use_container_width=True)
                 else:
                     st.caption("Aún no se han registrado accesos con códigos.")
             
             # Base de datos CRM
-            try:
-                with open(CRM_FILE, "r", encoding="utf-8") as f:
-                    st.download_button("📥 Descargar Base de Datos CRM (incluye Código, IP y Ubicación)", f, file_name="clientes_crm.csv", mime="text/csv", use_container_width=True)
-            except: pass
+            crm_bytes = _get_crm_csv_data()
+            if crm_bytes:
+                st.download_button(
+                    "📥 Descargar Base de Datos CRM (incluye Código, IP y Ubicación)",
+                    data=crm_bytes,
+                    file_name="clientes_crm.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
             st.info("💡 Como Administrador, puedes auditar otro proyecto sin tener que volver a pagar ni recargar.")
             st.divider()
         

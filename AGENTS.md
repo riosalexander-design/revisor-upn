@@ -61,11 +61,12 @@ Este archivo (`AGENTS.md`) contiene la memoria histórica, decisiones de diseño
 - **Analíticas:**
   - **Google Analytics (GA4):** ID `G-J2NW5JD21D`, inyectado mediante `components.html` forzando `page_title: 'Perspecta Salud'` y `page_location: 'https://revisordetesis.streamlit.app/'`.
   - **FlagCounter:** Código `OA6D` en el pie de la página de inicio.
-- **Persistencia de Datos (Consideración de Streamlit Cloud):**
-  - Actualmente los códigos de acceso (`codes_db.json`) y el CRM de clientes (`clientes_crm.csv`) se guardan como archivos locales.
-  - *Nota técnica:* Si se requiere persistencia permanente sin descargas manuales ante reinicios de Streamlit Cloud, migrar a **Google Sheets**.
+- **Persistencia Permanente en Base de Datos (Supabase PostgreSQL):**
+  - Configurada mediante `DATABASE_URL` en Streamlit Secrets / `.env` con `psycopg2-binary`.
+  - Tablas exclusivas aisladas de otros proyectos: `perspecta_codes` (códigos y usos), `perspecta_codes_log` (historial de IPs y ubicaciones) y `perspecta_crm` (registro de clientes CRM).
+  - Inmune a reinicios o actualizaciones (`git push`) de Streamlit Community Cloud.
 
 ---
 
 ## 4. Próximas Tareas Pendientes (Roadmap)
-- Conectar el registro del CRM y la base de datos de códigos a Google Sheets vía Service Account (cuando el usuario lo solicite).
+- Sistema 100% operativo con motor Gemini Pro + búsqueda en tiempo real y persistencia permanente en PostgreSQL.
