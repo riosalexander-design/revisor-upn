@@ -91,40 +91,73 @@ def _verify_and_enrich_references(report_text):
 
     return "\n".join(out_lines)
 
-from docx.text.paragraph import Paragraph
-from docx.table import Table
+W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
-def _extract_table_lines(table):
-    t_lines = ["[INICIO DE TABLA]"]
-    for row in table.rows:
-        row_cells = []
-        seen_tc = set()
-        for cell in row.cells:
-            tc_id = id(cell._tc)
-            if tc_id not in seen_tc:
-                seen_tc.add(tc_id)
-                parts = []
-                for item in cell.iter_inner_content():
-                    if isinstance(item, Paragraph):
-                        if item.text.strip():
-                            parts.append(item.text.strip())
-                    elif isinstance(item, Table):
-                        parts.extend(_extract_table_lines(item))
-                row_cells.append(" ".join(parts))
-        if any(row_cells):
-            t_lines.append(" | ".join(row_cells))
-    t_lines.append("[FIN DE TABLA]")
+def _extract_xml_table(tbl_el, table_counter):
+    table_counter[0] += 1
+    t_num = table_counter[0]
+    t_lines = [f"\n[TABLA DETECTADA #{t_num}]"]
+    row_idx = 0
+    for tr in tbl_el:
+        if tr.tag.endswith("}tr"):
+            row_cells = []
+            for tc in tr:
+                if tc.tag.endswith("}tc"):
+                    cell_parts = []
+                    for tc_child in tc:
+                        c_tag = tc_child.tag.split("}")[-1]
+                        if c_tag == "p":
+                            p_txt = "".join(t.text for t in tc_child.iter(W_NS + "t") if t.text)
+                            if p_txt.strip():
+                                cell_parts.append(p_txt.strip())
+                        elif c_tag == "tbl":
+                            nested_lines = _extract_xml_table(tc_child, table_counter)
+                            cell_parts.append(" ".join(nested_lines))
+                        elif c_tag in ("sdt", "sdtContent", "customXml", "smartTag"):
+                            sub_lines, _ = _extract_xml_node(tc_child, table_counter)
+                            cell_parts.append(" ".join(sub_lines))
+                    row_cells.append(" ".join(cell_parts).strip())
+            if any(row_cells):
+                row_idx += 1
+                t_lines.append(f"Fila {row_idx}: " + " | ".join(row_cells))
+    t_lines.append(f"[FIN DE TABLA #{t_num}]\n")
     return t_lines
 
-def _extract_docx_content(doc):
+def _extract_xml_node(node, table_counter):
     lines = []
-    for item in doc.iter_inner_content():
-        if isinstance(item, Paragraph):
-            if item.text.strip():
-                lines.append(item.text)
-        elif isinstance(item, Table):
-            lines.extend(_extract_table_lines(item))
-    return "\n".join(lines)
+    tables_only = []
+    for child in node:
+        tag = child.tag.split("}")[-1]
+        if tag == "p":
+            p_txt = "".join(t.text for t in child.iter(W_NS + "t") if t.text)
+            if p_txt.strip():
+                lines.append(p_txt.strip())
+            for txbx_tbl in child.iter(W_NS + "tbl"):
+                t_block = _extract_xml_table(txbx_tbl, table_counter)
+                lines.extend(t_block)
+                tables_only.append("\n".join(t_block))
+        elif tag == "tbl":
+            t_block = _extract_xml_table(child, table_counter)
+            lines.extend(t_block)
+            tables_only.append("\n".join(t_block))
+        elif tag in ("sdt", "sdtContent", "customXml", "smartTag", "txbxContent"):
+            sub_lines, sub_tables = _extract_xml_node(child, table_counter)
+            lines.extend(sub_lines)
+            tables_only.extend(sub_tables)
+    return lines, tables_only
+
+def _extract_docx_content(doc):
+    table_counter = [0]
+    lines, tables_only = _extract_xml_node(doc.element.body, table_counter)
+    full_txt = "\n".join(lines)
+    if tables_only:
+        full_txt += (
+            "\n\n=================================================================\n"
+            f"INVENTARIO EXPLÍCITO DE LAS {len(tables_only)} TABLAS EXTRAÍDAS DEL DOCUMENTO WORD:\n"
+            "(DEBES AUDITAR OBLIGATORIAMENTE CADA UNA DE ESTAS TABLAS Y CITAR SU CONTENIDO EN 'DONDE DICE:'):\n"
+            + "\n".join(tables_only)
+        )
+    return full_txt
 
 def _extract_pdf_content(doc):
     pages_out = []
@@ -136,28 +169,49 @@ def _extract_pdf_content(doc):
 
 _NORMATIVAS_CACHE = {}
 
-def extract_text_from_uploaded_file(uploaded_file):
+def extract_text_and_media_from_uploaded_file(uploaded_file):
     name = uploaded_file.name.lower()
     text = ""
+    media_parts = []
     try:
+        uploaded_file.seek(0)
+        raw_bytes = uploaded_file.read()
         if name.endswith('.pdf'):
-            pdf_bytes = uploaded_file.read()
-            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            doc = fitz.open(stream=raw_bytes, filetype="pdf")
             text = _extract_pdf_content(doc)
+            # Adjuntar también el PDF nativo para que el motor multimodal de Gemini vea visualmente todas las tablas e imágenes
+            if len(raw_bytes) <= 18 * 1024 * 1024:
+                media_parts.append(types.Part.from_bytes(data=raw_bytes, mime_type="application/pdf"))
         elif name.endswith('.docx'):
-            doc = docx.Document(uploaded_file)
+            doc = docx.Document(io.BytesIO(raw_bytes))
             text = _extract_docx_content(doc)
+            # Extraer imágenes incrustadas (ej. tablas de SPSS o matrices pegadas como imagen en el Word)
+            img_count = 0
+            for rel in doc.part.rels.values():
+                if "image" in rel.reltype:
+                    part = rel.target_part
+                    ctype = getattr(part, "content_type", "")
+                    blob = getattr(part, "blob", b"")
+                    if ctype in ("image/png", "image/jpeg", "image/jpg", "image/webp") and 4000 <= len(blob) <= 4 * 1024 * 1024:
+                        media_parts.append(types.Part.from_bytes(data=blob, mime_type=ctype))
+                        img_count += 1
+                        if img_count >= 15:
+                            break
         elif name.endswith('.txt'):
-            text = uploaded_file.read().decode('utf-8', errors='ignore')
+            text = raw_bytes.decode('utf-8', errors='ignore')
         elif name.endswith(('.xlsx', '.xls')):
-            df = pd.read_excel(uploaded_file)
+            df = pd.read_excel(io.BytesIO(raw_bytes))
             text = df.to_string()
         elif name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
+            df = pd.read_csv(io.BytesIO(raw_bytes))
             text = df.to_string()
     except Exception as e:
         print(f"Error reading {name}: {e}")
-    return text
+    return text, media_parts
+
+def extract_text_from_uploaded_file(uploaded_file):
+    txt, _ = extract_text_and_media_from_uploaded_file(uploaded_file)
+    return txt
 
 def extract_text_from_local_file(file_path):
     ext = os.path.splitext(file_path)[1].lower()
@@ -168,7 +222,9 @@ def extract_text_from_local_file(file_path):
             text = _extract_pdf_content(doc)
         elif ext == '.docx':
             doc = docx.Document(file_path)
-            text = _extract_docx_content(doc)
+            table_counter = [0]
+            lines, _ = _extract_xml_node(doc.element.body, table_counter)
+            text = "\n".join(lines)
         elif ext == '.txt':
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 text = f.read()
@@ -179,14 +235,17 @@ def extract_text_from_local_file(file_path):
 def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="Pregrado", work_stage="Proyecto de investigación"):
     client = genai.Client(api_key=api_key)
     
-    # Extraer texto de los archivos subidos en Streamlit
+    # Extraer texto y contenido visual (tablas en PDF o imágenes de tablas en Word) de los archivos subidos
     document_text = ""
+    all_media_parts = []
     for uf in uploaded_files:
+        txt, m_parts = extract_text_and_media_from_uploaded_file(uf)
         document_text += f"\n\n--- INICIO DE DOCUMENTO: {uf.name} ---\n\n"
-        document_text += extract_text_from_uploaded_file(uf)
+        document_text += txt
         document_text += f"\n\n--- FIN DE DOCUMENTO: {uf.name} ---\n\n"
+        all_media_parts.extend(m_parts)
         
-    if not document_text.strip():
+    if not document_text.strip() and not all_media_parts:
         return "No se encontraron documentos válidos o están vacíos."
 
     # Extraer texto de la carpeta de normativas local del servidor (con caché en memoria)
@@ -290,37 +349,40 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
         f"DATOS DE LA SOLICITUD A AUDITAR:\n"
         f"- Nivel académico declarado: {academic_level}\n"
         f"- Etapa del trabajo declarada: {work_stage}\n\n"
-        f"DOCUMENTO COMPLETO DEL PROYECTO / TESIS DEL ESTUDIANTE (INCLUYE TEXTO Y TABLAS):\n\n{document_text}\n\n"
+        f"DOCUMENTO COMPLETO DEL PROYECTO / TESIS DEL ESTUDIANTE (INCLUYE TEXTO, TABLAS EXTRAÍDAS Y ARCHIVOS VISUALES ADJUNTOS):\n\n{document_text}\n\n"
         f"=================================================================\n"
-        f"INSTRUCCIÓN FINAL OBLIGATORIA DE FORMATO:\n"
-        f"Genera AHORA la 'HOJA DE RUTA DE CORRECCIONES IMPERATIVAS — PERSPECTA SALUD' recorriendo el documento página por página y capítulo por capítulo. "
+        f"INSTRUCCIÓN FINAL OBLIGATORIA DE FORMATO Y AUDITORÍA DE TABLAS:\n"
+        f"1. AUDITORÍA OBLIGATORIA DEL TEXTO DENTRO DE LAS TABLAS: Está TERMINANTEMENTE PROHIBIDO obviar o pasar por alto el contenido de las tablas (tanto las marcadas como [TABLA DETECTADA #...] como cualquier tabla visible en el PDF o imágenes adjuntas). Debes leer fila por fila y columna por columna TODAS las tablas del documento (Tablas de Resultados 1, 2, 3, 4..., Matriz de Consistencia del Anexo 1, Matriz de Operacionalización de Variables del Anexo 2, Instrumentos/Cuestionarios en tabla del Anexo 3, Cronograma y Presupuesto) y generar bloques 'CORRECCIÓN XX' específicos citando textualmente en 'DONDE DICE:' los valores numéricos, porcentajes, baremos, dimensiones, encabezados o ítems que aparecen DENTRO de las celdas de dichas tablas.\n"
+        f"2. Genera AHORA la 'HOJA DE RUTA DE CORRECCIONES IMPERATIVAS — PERSPECTA SALUD' recorriendo el documento página por página y capítulo por capítulo hasta el último anexo. "
         f"Inicia con 'Instrucción general y aspectos logrados:' (indicando qué está bien y qué NO debe modificar, incluyendo la validación de la prueba estadística si ya es correcta). "
         f"Luego estructura ABSOLUTAMENTE CADA CORRECCIÓN con estas 3 etiquetas exactas en líneas separadas:\n"
         f"CORRECCIÓN 01 — [Título y Sección] (Página X) [CRÍTICO]\n"
-        f"DONDE DICE: [Cita textual exacta o valores actuales de la tabla con error/omisión]\n"
+        f"DONDE DICE: [Cita textual exacta o valores actuales de las celdas de la tabla con error/omisión]\n"
         f"COLOCA: [Texto exacto corregido listo para copiar e insertar + breve explicación entre paréntesis + Si propones una teoría, modelo, dato o antecedente nuevo, incluye obligatoriamente ahí mismo: 'Fuente verificada para agregar a tu bibliografía (Vancouver): ... Disponible en: https://doi.org/... (Verifica, lee y corrobora personalmente el enlace y documento antes de incorporarlo a tu versión final)']\n"
         f"(PROHIBIDO usar el formato antiguo de 'OBSERVACIÓN / EXPLICACIÓN / ACCIÓN RECOMENDADA'; usa EXCLUSIVAMENTE 'CORRECCIÓN XX', 'DONDE DICE:' y 'COLOCA:')."
     )
 
     models_to_try = [
-        'gemini-pro-latest',
         'gemini-3.1-pro-preview',
+        'gemini-pro-latest',
         'gemini-3.8-flash',
         'gemini-3.7-flash',
         'gemini-flash-latest'
     ]
     
     last_error = ""
+    contents_payload = [prompt, *all_media_parts] if all_media_parts else prompt
 
     for model_name in models_to_try:
         for attempt in range(3): # Reintenta 3 veces por cada modelo
             try:
                 response = client.models.generate_content(
                     model=model_name,
-                    contents=prompt,
+                    contents=contents_payload,
                     config=types.GenerateContentConfig(
                         system_instruction=sys_instruction,
                         tools=[{"google_search": {}}],
+                        max_output_tokens=32768,
                         temperature=0.2,
                     )
                 )
