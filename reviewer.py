@@ -9,6 +9,87 @@ from google import genai
 from google.genai import types
 
 import pandas as pd
+import requests
+
+def _verify_and_enrich_references(report_text):
+    """
+    1. Verifica cada DOI (10.xxxx/...) presente en el reporte contra la API oficial de doi.org.
+       Si algún DOI da 404, consulta Crossref con el texto de esa línea y lo reemplaza por el DOI real verificado.
+    2. Si una línea de 'Fuente verificada' o referencia sugerida no incluye enlace (http/doi.org),
+       consulta Crossref automáticamente y le anexa 'Disponible en: https://doi.org/...' si encuentra coincidencia.
+    """
+    doi_regex = re.compile(r'\b(10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)')
+    lines = report_text.splitlines()
+    out_lines = []
+
+    def _lookup_crossref_doi(query_txt):
+        clean_q = re.sub(r'Fuente[s]?\s+verificada[s]?.*?:', '', query_txt, flags=re.IGNORECASE)
+        clean_q = re.sub(r'\(Verifica.*?\)', '', clean_q, flags=re.IGNORECASE).strip()
+        if len(clean_q) < 18:
+            return None
+        try:
+            r = requests.get(
+                "https://api.crossref.org/works",
+                params={"query.bibliographic": clean_q[:220], "rows": 1},
+                timeout=3.5
+            )
+            if r.status_code == 200:
+                items = r.json().get("message", {}).get("items", [])
+                if items:
+                    cand = items[0]
+                    cand_doi = cand.get("DOI")
+                    # Verificar que al menos el apellido del primer autor o una palabra clave del título coincida
+                    cand_title = " ".join(cand.get("title", [])).lower()
+                    cand_authors = " ".join(a.get("family", "") for a in cand.get("author", [])).lower()
+                    q_lower = clean_q.lower()
+                    author_match = any(w in q_lower for w in cand_authors.split() if len(w) > 3)
+                    title_words = [w for w in re.findall(r'[a-záéíóúñ]{5,}', cand_title)]
+                    title_match = sum(1 for w in title_words[:6] if w in q_lower) >= 2
+                    if cand_doi and (author_match or title_match):
+                        return cand_doi
+        except Exception:
+            pass
+        return None
+
+    for line in lines:
+        # 1. Si la línea contiene un DOI, verificar que exista realmente en doi.org
+        matches = list(doi_regex.finditer(line))
+        if matches:
+            new_line = line
+            for m in matches:
+                raw_doi = m.group(1).rstrip(".,;)]")
+                is_valid = True
+                try:
+                    resp = requests.get(f"https://doi.org/api/handles/{raw_doi}", timeout=3.0)
+                    if resp.status_code == 404:
+                        is_valid = False
+                except Exception:
+                    is_valid = True
+                if not is_valid:
+                    line_wo_doi = new_line.replace(raw_doi, "").replace("https://doi.org/", "")
+                    replacement_doi = _lookup_crossref_doi(line_wo_doi)
+                    if replacement_doi:
+                        new_line = new_line.replace(raw_doi, replacement_doi)
+                    else:
+                        new_line = re.sub(r'(?:Disponible en:\s*)?https?://doi\.org/' + re.escape(raw_doi) + r'[.,;]?', '', new_line)
+                        new_line = new_line.replace(f"doi: {raw_doi}", "").replace(raw_doi, "")
+            out_lines.append(new_line)
+            continue
+
+        # 2. Si es una línea de 'Fuente verificada' sin enlace http/doi.org, buscar su DOI real en Crossref
+        if re.search(r'Fuente[s]?\s+verificada[s]?\s+para\s+agregar\s+a\s+tu\s+bibliograf[íi]a', line, re.IGNORECASE):
+            if "http://" not in line.lower() and "https://" not in line.lower() and "doi.org" not in line.lower():
+                found_doi = _lookup_crossref_doi(line)
+                if found_doi:
+                    # Insertar antes del paréntesis de advertencia si existe
+                    if "(Verifica" in line:
+                        idx = line.find("(Verifica")
+                        line = line[:idx].rstrip() + f" Disponible en: https://doi.org/{found_doi} " + line[idx:]
+                    else:
+                        line = line.rstrip() + f" Disponible en: https://doi.org/{found_doi}"
+        out_lines.append(line)
+
+    return "\n".join(out_lines)
 
 from docx.text.paragraph import Paragraph
 from docx.table import Table
@@ -140,15 +221,15 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
         "- Audita Resumen y Palabras Claves: precisión metodológica ('tipo básico' en lugar de 'nivel básico' cuando el nivel/alcance es correlacional/descriptivo), uso obligatorio de coma decimal en todos los porcentajes (ej. 68,3 % en vez de 68.3 %), reemplazo obligatorio de 'p = 0.000' o 'p = 0,000' por 'p < 0,001' (explicando entre paréntesis que en bioestadística nunca se reporta p = 0,000), y al menos 5 descriptores científicos (DeCS/MeSH).\n\n"
         "2. CAPÍTULO I: INTRODUCCIÓN\n"
         "- 1.1 Realidad Problemática:\n"
-        "  * Estructura en embudo estricto: Verifica que transite desde el nivel MUNDIAL (OMS), al REGIONAL (OPS/Latinoamérica), luego al NACIONAL (MINSA/INEI) y aterrice obligatoriamente en el nivel LOCAL (caracterización demográfica y epidemiológica del distrito y del establecimiento o institución específica donde se ejecuta el estudio). Si falta el cierre local, redacta en 'COLOCA:' el párrafo situacional local completo listo para insertar.\n"
+        "  * Estructura en embudo estricto: Verifica que transite desde el nivel MUNDIAL (OMS), al REGIONAL (OPS/Latinoamérica), luego al NACIONAL (MINSA/INEI) y aterrice obligatoriamente en el nivel LOCAL (caracterización demográfica y epidemiológica del distrito y del establecimiento o institución específica donde se ejecuta el estudio). Si falta el cierre local o algún nivel del embudo, redacta en 'COLOCA:' el párrafo completo listo para insertar CON su llamada de cita Vancouver e incluye inmediatamente al final de ese mismo 'COLOCA:' la línea 'Fuente verificada para agregar a tu bibliografía (Vancouver):' con la referencia completa y su enlace oficial directo o DOI real verificado.\n"
         "  * Rigor epidemiológico: Detecta errores conceptuales o de indicadores (por ejemplo, confundir casos absolutos de muertes con tasas por cien mil nacidos vivos, o expresiones mal redactadas como 'maternidad materna' en vez de 'mortalidad materna').\n"
         "- 1.2 Antecedentes:\n"
         "  * Umbral mínimo según nivel académico declarado: Para Pregrado, exige como MÍNIMO 5 antecedentes internacionales y 5 nacionales (al menos 10 en total); para Posgrado (Maestría/Doctorado), exige como MÍNIMO 10 internacionales y 10 nacionales (al menos 20 en total).\n"
-        "  * Orden cronológico ascendente estricto: Deben ordenarse desde el más antiguo hasta el más reciente (ej. 2020 -> 2023 -> 2024 -> 2025). En 'COLOCA:', muestra la secuencia cronológica exacta ordenada de los autores que ya tiene y sugiere los estudios reales faltantes (buscados en tiempo real con google_search) con su referencia Vancouver y DOI real o enlace directo a la revista científica.\n"
+        "  * Orden cronológico ascendente estricto: Deben ordenarse desde el más antiguo hasta el más reciente (ej. 2020 -> 2023 -> 2024 -> 2025). En 'COLOCA:', muestra la secuencia cronológica exacta ordenada de los autores que ya tiene y sugiere los estudios reales faltantes (buscados en tiempo real con google_search) incluyendo para CADA estudio sugerido su párrafo redactado listo para insertar y su 'Fuente verificada para agregar a tu bibliografía (Vancouver):' con el DOI real verificado (https://doi.org/...) o enlace directo a la revista científica.\n"
         "  * Corrige erratas textuales o redundancias dentro de los antecedentes (ej. 'conocimiento alto sobre conocimiento').\n"
         "- 1.3 Bases Teóricas y Marco Conceptual:\n"
         "  * Precisión clínica y científica: Detecta errores terminológicos graves (ej. escribir 'hiperemia gravídica' en lugar de 'hiperémesis gravídica', mezclar signos clínicos distintos en una misma cita, o escribir nombres bacteriológicos como 'E-coli' en lugar de 'Escherichia coli' en cursiva).\n"
-        "  * Articulación con Teoría Científica: Verifica que las variables y sus dimensiones estén respaldadas por una teoría o modelo científico clásico (ej. Modelo de Creencias en Salud de Rosenstock / Janz y Becker, Teoría de Jean Watson, Modelo de Dorothea Orem, etc.). Si falta, redacta en 'COLOCA:' el párrafo completo de articulación teórica listo para copiar e insertar al final de las Bases Teóricas.\n"
+        "  * Articulación con Teoría Científica (OBLIGATORIO INCLUIR FUENTE VERIFICADA DE LA TEORÍA): Verifica que las variables y sus dimensiones estén respaldadas por una teoría o modelo científico clásico (ej. Modelo de Creencias en Salud de Rosenstock / Janz y Becker, Teoría de Jean Watson, Modelo de Dorothea Orem, etc.). Si falta o es débil, redacta en 'COLOCA:' el párrafo completo de articulación teórica listo para copiar e insertar al final de las Bases Teóricas con su llamada numérica de cita, e INCLUYE OBLIGATORIAMENTE al pie de ese mismo bloque 'COLOCA:' la línea: 'Fuente verificada para agregar a tu bibliografía (Vancouver): [Cita completa en Vancouver de la obra o artículo seminal de la teoría con su DOI real verificado https://doi.org/... o enlace oficial directo] (Verifica, lee y corrobora personalmente el enlace y documento antes de incorporarlo a tu versión final)'. NUNCA propongas una teoría o texto académico sin entregar en ese mismo bloque su fuente verificada completa.\n"
         "- 1.4 / 1.5 Justificación, Problemas, Objetivos e Hipótesis:\n"
         "  * Verifica numeración de subtítulos, signos de interrogación '?' en todos los problemas, mayúsculas en nombres propios de instituciones, y coherencia exacta entre problemas, objetivos, hipótesis y lo procesado en resultados.\n\n"
         "3. CAPÍTULO II: METODOLOGÍA\n"
@@ -187,9 +268,10 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
         "Cada hallazgo debe redactarse EXACTAMENTE con esta estructura de 3 líneas/bloques para que el sistema lo convierta automáticamente en tablas ejecutivas dentro del archivo Word:\n"
         "CORRECCIÓN [Número de 2 dígitos: 01, 02, 03...] — [Subtítulo claro de la sección y tema] (Página [X o rango X–Y]) [Agregar '[CRÍTICO]' al final del título si la observación compromete la aprobación metodológica, clínica, estadística o normativa]\n"
         "DONDE DICE: [Cita textual exacta entre comillas de lo que dice el documento actual, o descripción precisa de la fila/celda de la tabla con sus valores actuales. Si hay varios errores en esa misma sección, numéralos como 1., 2., 3.]\n"
-        "COLOCA: [Instrucción directa, asertiva e imperativa con el texto exacto corregido listo para copiar y pegar, numerando 1., 2., 3. en correspondencia exacta con DONDE DICE, e incluyendo entre paréntesis la breve explicación pedagógica de por qué se aplica esa mejora]\n\n"
+        "COLOCA: [Instrucción directa, asertiva e imperativa con el texto exacto corregido listo para copiar y pegar, numerando 1., 2., 3. en correspondencia exacta con DONDE DICE, e incluyendo entre paréntesis la breve explicación pedagógica de por qué se aplica esa mejora. REGLA INQUEBRANTABLE: Siempre que en 'COLOCA:' propongas una teoría científica, un modelo teórico, un antecedente o un texto que cite datos o autores nuevos, incluye al final de ese mismo bloque 'COLOCA:' la línea 'Fuente verificada para agregar a tu bibliografía (Vancouver):' con la referencia completa en estilo Vancouver y su DOI real verificado (https://doi.org/...) o enlace directo oficial, seguido de '(Verifica, lee y corrobora personalmente el enlace y documento antes de incorporarlo a tu versión final)'.]\n\n"
         "REGLAS ESTRICTAS DE NEGOCIO Y ESTILO:\n"
         "- PROHIBIDO COLOCAR CALIFICACIÓN O PUNTAJE: No asignes notas sobre 20 ni sobre 100.\n"
+        "- PROHIBIDO PROPONER TEORÍAS O TEXTOS SIN FUENTE VERIFICADA: Jamás propongas insertar una teoría, modelo conceptual, cifra epidemiológica o antecedente sin entregar inmediatamente en el mismo bloque 'COLOCA:' su referencia bibliográfica completa en estilo Vancouver con su DOI real verificado o enlace oficial directo.\n"
         "- PROHIBIDO SOLICITAR TRÁMITE DE COMITÉ DE ÉTICA: Nunca pidas al estudiante presentar su trabajo a un Comité de Ética ni adjuntar cartas de aprobación del CIEI; entrégale directamente el párrafo ético normativo listo para insertar.\n"
         "- CONFIDENCIALIDAD INSTITUCIONAL: NUNCA menciones las siglas UPN ni 'Universidad Privada del Norte' en ninguna parte del reporte (usa 'tu universidad' o 'la institución'), ni inventes nombres propios de asesores que no figuren en el documento subido.\n"
         "- TEXTO LIMPIO SIN MARKDOWN: No uses asteriscos (**), ni numerales (#), ni tablas Markdown (|---|) en tu respuesta; usa únicamente las etiquetas en mayúsculas 'CORRECCIÓN 01 — ...', 'DONDE DICE:' y 'COLOCA:' para que el generador nativo de Word construya las tablas.\n\n"
@@ -216,7 +298,7 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
         f"Luego estructura ABSOLUTAMENTE CADA CORRECCIÓN con estas 3 etiquetas exactas en líneas separadas:\n"
         f"CORRECCIÓN 01 — [Título y Sección] (Página X) [CRÍTICO]\n"
         f"DONDE DICE: [Cita textual exacta o valores actuales de la tabla con error/omisión]\n"
-        f"COLOCA: [Texto exacto corregido listo para copiar e insertar + breve explicación entre paréntesis]\n"
+        f"COLOCA: [Texto exacto corregido listo para copiar e insertar + breve explicación entre paréntesis + Si propones una teoría, modelo, dato o antecedente nuevo, incluye obligatoriamente ahí mismo: 'Fuente verificada para agregar a tu bibliografía (Vancouver): ... Disponible en: https://doi.org/... (Verifica, lee y corrobora personalmente el enlace y documento antes de incorporarlo a tu versión final)']\n"
         f"(PROHIBIDO usar el formato antiguo de 'OBSERVACIÓN / EXPLICACIÓN / ACCIÓN RECOMENDADA'; usa EXCLUSIVAMENTE 'CORRECCIÓN XX', 'DONDE DICE:' y 'COLOCA:')."
     )
 
@@ -266,6 +348,12 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
                         report_clean = raw_report[:json_match.start()].strip()
                     except:
                         pass
+
+                # Verificación y enriquecimiento automático de DOIs y fuentes en Crossref / doi.org
+                try:
+                    report_clean = _verify_and_enrich_references(report_clean)
+                except Exception:
+                    pass
 
                 return {
                     "report": report_clean,
