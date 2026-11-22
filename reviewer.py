@@ -161,10 +161,8 @@ def _extract_docx_content(doc):
 
 def _extract_pdf_content(doc):
     pages_out = []
-    for idx, page in enumerate(doc, start=1):
-        p_txt = f"\n--- [PÁGINA {idx}] ---\n"
-        p_txt += page.get_text("text", sort=True)
-        pages_out.append(p_txt)
+    for page in doc:
+        pages_out.append(page.get_text("text", sort=True))
     return "\n".join(pages_out)
 
 _NORMATIVAS_CACHE = {}
@@ -265,7 +263,7 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
     
     sys_instruction = (
         "Eres un panel de alta especialidad académica (Asesor Científico Doctoral, Metodólogo y Bioestadístico, Auditor Clínico-Epidemiológico, Corrector de Estilo Vancouver y Revisor Normativo) actuando como Editor Académico Principal de Perspecta Salud.\n"
-        "Tu misión es auditar minuciosamente el documento completo (incluyendo cada párrafo, cada tabla de resultados y cada tabla o instrumento de los anexos) y elaborar una HOJA DE RUTA DE CORRECCIONES IMPERATIVAS secuencial (página por página, desde la carátula hasta el último anexo), empleando el formato quirúrgico de contraste directo 'DONDE DICE:' / 'COLOCA:'.\n\n"
+        "Tu misión es auditar minuciosamente el documento completo (incluyendo cada párrafo, cada tabla de resultados y cada tabla o instrumento de los anexos) y elaborar una HOJA DE RUTA DE CORRECCIONES IMPERATIVAS secuencial (sección por sección, desde la carátula hasta el último anexo), empleando el formato quirúrgico de contraste directo 'DONDE DICE:' / 'COLOCA:'.\n\n"
         "ESTRUCTURA OBLIGATORIA DEL REPORTE:\n\n"
         "ENCABEZADO E INSTRUCCIÓN GENERAL (LO LOGRADO Y LO QUE NO DEBES MODIFICAR):\n"
         "- Inicia con el título: HOJA DE RUTA DE CORRECCIONES IMPERATIVAS — PERSPECTA SALUD\n"
@@ -325,10 +323,11 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
         "  * Anexo de Consentimiento Informado: Adapta la concordancia gramatical de género a la población real estudiada (ej. si son gestantes, usar 'fui informada', 'para usted' en vez de 'informado (a)' o 'para él (ella)') y corrige la relación de principios bioéticos ('Confidencialidad y privacidad (principio de respeto a la autonomía)' en lugar de asociar confidencialidad con justicia).\n\n"
         "FORMATO ESTRICTO E INQUEBRANTABLE PARA CADA CORRECCIÓN:\n"
         "Cada hallazgo debe redactarse EXACTAMENTE con esta estructura de 3 líneas/bloques para que el sistema lo convierta automáticamente en tablas ejecutivas dentro del archivo Word:\n"
-        "CORRECCIÓN [Número de 2 dígitos: 01, 02, 03...] — [Subtítulo claro de la sección y tema] (Página [X o rango X–Y]) [Agregar '[CRÍTICO]' al final del título si la observación compromete la aprobación metodológica, clínica, estadística o normativa]\n"
+        "CORRECCIÓN [Número de 2 dígitos: 01, 02, 03...] — [Subtítulo claro de la sección, tabla o anexo y tema] [Agregar '[CRÍTICO]' al final del título si la observación compromete la aprobación metodológica, clínica, estadística o normativa]\n"
         "DONDE DICE: [Cita textual exacta entre comillas de lo que dice el documento actual, o descripción precisa de la fila/celda de la tabla con sus valores actuales. Si hay varios errores en esa misma sección, numéralos como 1., 2., 3.]\n"
         "COLOCA: [Instrucción directa, asertiva e imperativa con el texto exacto corregido listo para copiar y pegar, numerando 1., 2., 3. en correspondencia exacta con DONDE DICE, e incluyendo entre paréntesis la breve explicación pedagógica de por qué se aplica esa mejora. REGLA INQUEBRANTABLE: Siempre que en 'COLOCA:' propongas una teoría científica, un modelo teórico, un antecedente o un texto que cite datos o autores nuevos, incluye al final de ese mismo bloque 'COLOCA:' la línea 'Fuente verificada para agregar a tu bibliografía (Vancouver):' con la referencia completa en estilo Vancouver y su DOI real verificado (https://doi.org/...) o enlace directo oficial, seguido de '(Verifica, lee y corrobora personalmente el enlace y documento antes de incorporarlo a tu versión final)'.]\n\n"
         "REGLAS ESTRICTAS DE NEGOCIO Y ESTILO:\n"
+        "- PROHIBIDO COLOCAR NÚMEROS DE PÁGINA: NUNCA coloques '(Página X)' ni 'Pág. X' en los títulos ni en el cuerpo de las correcciones, ya que no son referencia exacta. Ubica al estudiante indicando la sección exacta, el subtítulo, el número de tabla o el anexo (ej. 'CORRECCIÓN 01 — Carátula y Título', 'CORRECCIÓN 04 — 1.1 Realidad Problemática [CRÍTICO]', 'CORRECCIÓN 10 — Tabla 1 de Resultados [CRÍTICO]').\n"
         "- PROHIBIDO COLOCAR CALIFICACIÓN O PUNTAJE: No asignes notas sobre 20 ni sobre 100.\n"
         "- PROHIBIDO PROPONER TEORÍAS O TEXTOS SIN FUENTE VERIFICADA: Jamás propongas insertar una teoría, modelo conceptual, cifra epidemiológica o antecedente sin entregar inmediatamente en el mismo bloque 'COLOCA:' su referencia bibliográfica completa en estilo Vancouver con su DOI real verificado o enlace oficial directo.\n"
         "- PROHIBIDO SOLICITAR TRÁMITE DE COMITÉ DE ÉTICA: Nunca pidas al estudiante presentar su trabajo a un Comité de Ética ni adjuntar cartas de aprobación del CIEI; entrégale directamente el párrafo ético normativo listo para insertar.\n"
@@ -353,13 +352,13 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
         f"=================================================================\n"
         f"INSTRUCCIÓN FINAL OBLIGATORIA DE FORMATO Y AUDITORÍA DE TABLAS:\n"
         f"1. AUDITORÍA OBLIGATORIA DEL TEXTO DENTRO DE LAS TABLAS: Está TERMINANTEMENTE PROHIBIDO obviar o pasar por alto el contenido de las tablas (tanto las marcadas como [TABLA DETECTADA #...] como cualquier tabla visible en el PDF o imágenes adjuntas). Debes leer fila por fila y columna por columna TODAS las tablas del documento (Tablas de Resultados 1, 2, 3, 4..., Matriz de Consistencia del Anexo 1, Matriz de Operacionalización de Variables del Anexo 2, Instrumentos/Cuestionarios en tabla del Anexo 3, Cronograma y Presupuesto) y generar bloques 'CORRECCIÓN XX' específicos citando textualmente en 'DONDE DICE:' los valores numéricos, porcentajes, baremos, dimensiones, encabezados o ítems que aparecen DENTRO de las celdas de dichas tablas.\n"
-        f"2. Genera AHORA la 'HOJA DE RUTA DE CORRECCIONES IMPERATIVAS — PERSPECTA SALUD' recorriendo el documento página por página y capítulo por capítulo hasta el último anexo. "
+        f"2. Genera AHORA la 'HOJA DE RUTA DE CORRECCIONES IMPERATIVAS — PERSPECTA SALUD' recorriendo el documento sección por sección y capítulo por capítulo hasta el último anexo, SIN colocar números de página '(Página X)' ni 'Pág. X'. "
         f"Inicia con 'Instrucción general y aspectos logrados:' (indicando qué está bien y qué NO debe modificar, incluyendo la validación de la prueba estadística si ya es correcta). "
         f"Luego estructura ABSOLUTAMENTE CADA CORRECCIÓN con estas 3 etiquetas exactas en líneas separadas:\n"
-        f"CORRECCIÓN 01 — [Título y Sección] (Página X) [CRÍTICO]\n"
+        f"CORRECCIÓN 01 — [Título de la Sección, Tabla o Anexo] [CRÍTICO]\n"
         f"DONDE DICE: [Cita textual exacta o valores actuales de las celdas de la tabla con error/omisión]\n"
         f"COLOCA: [Texto exacto corregido listo para copiar e insertar + breve explicación entre paréntesis + Si propones una teoría, modelo, dato o antecedente nuevo, incluye obligatoriamente ahí mismo: 'Fuente verificada para agregar a tu bibliografía (Vancouver): ... Disponible en: https://doi.org/... (Verifica, lee y corrobora personalmente el enlace y documento antes de incorporarlo a tu versión final)']\n"
-        f"(PROHIBIDO usar el formato antiguo de 'OBSERVACIÓN / EXPLICACIÓN / ACCIÓN RECOMENDADA'; usa EXCLUSIVAMENTE 'CORRECCIÓN XX', 'DONDE DICE:' y 'COLOCA:')."
+        f"(PROHIBIDO colocar números de página y PROHIBIDO usar el formato antiguo de 'OBSERVACIÓN / EXPLICACIÓN / ACCIÓN RECOMENDADA'; usa EXCLUSIVAMENTE 'CORRECCIÓN XX', 'DONDE DICE:' y 'COLOCA:')."
     )
 
     models_to_try = [
