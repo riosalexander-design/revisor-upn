@@ -393,14 +393,62 @@ def _get_crm_csv_data():
             return None
     return None
 
+def _set_cell_shading(cell, fill_hex):
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    tcPr = cell._tc.get_or_add_tcPr()
+    shd = OxmlElement('w:shd')
+    shd.set(qn('w:val'), 'clear')
+    shd.set(qn('w:color'), 'auto')
+    shd.set(qn('w:fill'), fill_hex)
+    tcPr.append(shd)
+
+def _add_donde_coloca_table(doc, donde_txt, coloca_txt):
+    from docx.shared import Inches, Pt, RGBColor
+    tbl = doc.add_table(rows=2, cols=2)
+    tbl.style = 'Table Grid'
+    tbl.autofit = False
+
+    # Fila 1: DONDE DICE
+    c00, c01 = tbl.rows[0].cells[0], tbl.rows[0].cells[1]
+    c00.width = Inches(1.35)
+    c01.width = Inches(5.15)
+    _set_cell_shading(c00, "FFF4F4")
+    p00 = c00.paragraphs[0]
+    r00 = p00.add_run("DONDE DICE:")
+    r00.bold = True
+    r00.font.size = Pt(10)
+    r00.font.color.rgb = RGBColor(0x99, 0x1B, 0x1B)
+    p01 = c01.paragraphs[0]
+    r01 = p01.add_run(donde_txt.strip())
+    r01.font.size = Pt(10)
+
+    # Fila 2: COLOCA
+    c10, c11 = tbl.rows[1].cells[0], tbl.rows[1].cells[1]
+    c10.width = Inches(1.35)
+    c11.width = Inches(5.15)
+    _set_cell_shading(c10, "E8F9FA")
+    p10 = c10.paragraphs[0]
+    r10 = p10.add_run("COLOCA:")
+    r10.bold = True
+    r10.font.size = Pt(10)
+    r10.font.color.rgb = RGBColor(0x07, 0x2E, 0x68)
+    p11 = c11.paragraphs[0]
+    r11 = p11.add_run(coloca_txt.strip())
+    r11.font.size = Pt(10)
+
+    doc.add_paragraph("")
+
 def create_docx(report_text, project_name, author_name):
+    import re
+    from docx.shared import Pt, RGBColor
     doc = docx.Document()
     
     # Agregar Encabezado (Header)
     section = doc.sections[0]
     header = section.header
     header_para = header.paragraphs[0]
-    header_para.text = "Perspecta Salud - Revisión Académica Inteligente"
+    header_para.text = "Perspecta Salud - Hoja de Ruta de Correcciones Imperativas"
     
     # Agregar Pie de Página (Footer)
     footer = section.footer
@@ -409,15 +457,95 @@ def create_docx(report_text, project_name, author_name):
     
     # Títulos principales en la primera página
     doc.add_heading("Perspecta Salud", 0)
-    doc.add_heading("Informe de Auditoría Científica", 1)
+    doc.add_heading("Hoja de Ruta de Correcciones Imperativas", 1)
     doc.add_heading(f"Proyecto: {project_name}", 2)
     doc.add_heading(f"Autor(es): {author_name}", 3)
     doc.add_paragraph(f"Fecha: {datetime.datetime.now().strftime('%d/%m/%Y')}")
-    
-    for para in report_text.split("\n\n"):
-        if para.strip():
-            doc.add_paragraph(para.strip())
-            
+
+    lines = report_text.splitlines()
+    mode = None  # 'donde' or 'coloca'
+    donde_buf = []
+    coloca_buf = []
+
+    def flush_pair():
+        nonlocal mode, donde_buf, coloca_buf
+        if donde_buf or coloca_buf:
+            _add_donde_coloca_table(
+                doc,
+                "\n".join(donde_buf).strip() or "—",
+                "\n".join(coloca_buf).strip() or "—"
+            )
+        mode = None
+        donde_buf = []
+        coloca_buf = []
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        # Detectar encabezados de sección (ej. "1. PÁGINAS PRELIMINARES...", "2. CAPÍTULO I...")
+        if re.match(r"^[1-9]\.\s+[A-ZÁÉÍÓÚÑ0-9\s:(),—–-]{5,}$", line):
+            flush_pair()
+            doc.add_heading(line, level=2)
+            continue
+
+        # Detectar título de corrección (ej. "CORRECCIÓN 01 — ...")
+        if re.match(r"^CORRECCI[ÓO]N\s+\d+", line, re.IGNORECASE):
+            flush_pair()
+            p = doc.add_paragraph()
+            if "[CRÍTICO]" in line.upper():
+                idx = line.upper().find("[CRÍTICO]")
+                main_part = line[:idx].strip()
+                crit_part = " [CRÍTICO]"
+                r1 = p.add_run(main_part)
+                r1.bold = True
+                r1.font.size = Pt(11)
+                r1.font.color.rgb = RGBColor(0x07, 0x2E, 0x68)
+                r2 = p.add_run(crit_part)
+                r2.bold = True
+                r2.font.size = Pt(11)
+                r2.font.color.rgb = RGBColor(0xC0, 0x39, 0x2B)
+            else:
+                r1 = p.add_run(line)
+                r1.bold = True
+                r1.font.size = Pt(11)
+                r1.font.color.rgb = RGBColor(0x07, 0x2E, 0x68)
+            continue
+
+        # Detectar inicio de DONDE DICE:
+        m_donde = re.match(r"^\|?\s*DONDE\s+DICE\s*:\s*\|?(.*)$", line, re.IGNORECASE)
+        if m_donde:
+            if mode == "coloca" and (donde_buf or coloca_buf):
+                flush_pair()
+            mode = "donde"
+            rest = m_donde.group(1).strip().rstrip("|").strip()
+            if rest:
+                donde_buf.append(rest)
+            continue
+
+        # Detectar inicio de COLOCA:
+        m_coloca = re.match(r"^\|?\s*COLOCA\s*:\s*\|?(.*)$", line, re.IGNORECASE)
+        if m_coloca:
+            mode = "coloca"
+            rest = m_coloca.group(1).strip().rstrip("|").strip()
+            if rest:
+                coloca_buf.append(rest)
+            continue
+
+        # Si estamos dentro de DONDE DICE o COLOCA, acumular líneas adicionales
+        if mode == "donde":
+            donde_buf.append(line)
+        elif mode == "coloca":
+            coloca_buf.append(line)
+        else:
+            p = doc.add_paragraph(line)
+            if line.lower().startswith(("instrucción general", "hoja de ruta")):
+                for r in p.runs:
+                    r.bold = True
+
+    flush_pair()
+
     bio = io.BytesIO()
     doc.save(bio)
     return bio.getvalue()
