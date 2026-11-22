@@ -10,6 +10,63 @@ from google.genai import types
 
 import pandas as pd
 
+from docx.text.paragraph import Paragraph
+from docx.table import Table
+
+def _extract_table_lines(table):
+    t_lines = ["[INICIO DE TABLA]"]
+    for row in table.rows:
+        row_cells = []
+        seen_tc = set()
+        for cell in row.cells:
+            tc_id = id(cell._tc)
+            if tc_id not in seen_tc:
+                seen_tc.add(tc_id)
+                parts = []
+                for item in cell.iter_inner_content():
+                    if isinstance(item, Paragraph):
+                        if item.text.strip():
+                            parts.append(item.text.strip())
+                    elif isinstance(item, Table):
+                        parts.extend(_extract_table_lines(item))
+                row_cells.append(" ".join(parts))
+        if any(row_cells):
+            t_lines.append(" | ".join(row_cells))
+    t_lines.append("[FIN DE TABLA]")
+    return t_lines
+
+def _extract_docx_content(doc):
+    lines = []
+    for item in doc.iter_inner_content():
+        if isinstance(item, Paragraph):
+            if item.text.strip():
+                lines.append(item.text)
+        elif isinstance(item, Table):
+            lines.extend(_extract_table_lines(item))
+    return "\n".join(lines)
+
+def _extract_pdf_content(doc):
+    pages_out = []
+    for idx, page in enumerate(doc, start=1):
+        p_txt = f"\n--- [PÁGINA {idx}] ---\n"
+        p_txt += page.get_text("text", sort=True)
+        try:
+            tabs = page.find_tables()
+            if tabs and tabs.tables:
+                for t_idx, tab in enumerate(tabs.tables, start=1):
+                    extracted = tab.extract()
+                    if extracted:
+                        p_txt += f"\n[TABLA {t_idx} DE PÁGINA {idx}]\n"
+                        for row in extracted:
+                            clean_row = [str(c).replace("\n", " ").strip() if c is not None else "" for c in row]
+                            if any(clean_row):
+                                p_txt += " | ".join(clean_row) + "\n"
+                        p_txt += f"[FIN TABLA {t_idx} DE PÁGINA {idx}]\n"
+        except Exception:
+            pass
+        pages_out.append(p_txt)
+    return "\n".join(pages_out)
+
 def extract_text_from_uploaded_file(uploaded_file):
     name = uploaded_file.name.lower()
     text = ""
@@ -17,12 +74,10 @@ def extract_text_from_uploaded_file(uploaded_file):
         if name.endswith('.pdf'):
             pdf_bytes = uploaded_file.read()
             doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-            for page in doc:
-                text += page.get_text()
+            text = _extract_pdf_content(doc)
         elif name.endswith('.docx'):
             doc = docx.Document(uploaded_file)
-            for para in doc.paragraphs:
-                text += para.text + "\n"
+            text = _extract_docx_content(doc)
         elif name.endswith('.txt'):
             text = uploaded_file.read().decode('utf-8', errors='ignore')
         elif name.endswith(('.xlsx', '.xls')):
@@ -41,12 +96,10 @@ def extract_text_from_local_file(file_path):
     try:
         if ext == '.pdf':
             doc = fitz.open(file_path)
-            for page in doc:
-                text += page.get_text()
+            text = _extract_pdf_content(doc)
         elif ext == '.docx':
             doc = docx.Document(file_path)
-            for para in doc.paragraphs:
-                text += para.text + "\n"
+            text = _extract_docx_content(doc)
         elif ext == '.txt':
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 text = f.read()
