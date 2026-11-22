@@ -50,22 +50,10 @@ def _extract_pdf_content(doc):
     for idx, page in enumerate(doc, start=1):
         p_txt = f"\n--- [PÁGINA {idx}] ---\n"
         p_txt += page.get_text("text", sort=True)
-        try:
-            tabs = page.find_tables()
-            if tabs and tabs.tables:
-                for t_idx, tab in enumerate(tabs.tables, start=1):
-                    extracted = tab.extract()
-                    if extracted:
-                        p_txt += f"\n[TABLA {t_idx} DE PÁGINA {idx}]\n"
-                        for row in extracted:
-                            clean_row = [str(c).replace("\n", " ").strip() if c is not None else "" for c in row]
-                            if any(clean_row):
-                                p_txt += " | ".join(clean_row) + "\n"
-                        p_txt += f"[FIN TABLA {t_idx} DE PÁGINA {idx}]\n"
-        except Exception:
-            pass
         pages_out.append(p_txt)
     return "\n".join(pages_out)
+
+_NORMATIVAS_CACHE = {}
 
 def extract_text_from_uploaded_file(uploaded_file):
     name = uploaded_file.name.lower()
@@ -120,15 +108,18 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
     if not document_text.strip():
         return "No se encontraron documentos válidos o están vacíos."
 
-    # Extraer texto de la carpeta de normativas local del servidor
-    institutional_normative = ""
-    if os.path.isdir(normative_folder):
+    # Extraer texto de la carpeta de normativas local del servidor (con caché en memoria)
+    if normative_folder in _NORMATIVAS_CACHE:
+        institutional_normative = _NORMATIVAS_CACHE[normative_folder]
+    elif os.path.isdir(normative_folder):
+        institutional_normative = ""
         for root, dirs, files in os.walk(normative_folder):
             for file in files:
                 if file.lower().endswith(('.pdf', '.docx', '.txt')):
                     path = os.path.join(root, file)
                     institutional_normative += f"\n\n--- NORMATIVA: {file} ---\n\n"
                     institutional_normative += extract_text_from_local_file(path)
+        _NORMATIVAS_CACHE[normative_folder] = institutional_normative
     else:
         return f"No se encontró la carpeta de normativas en el servidor: {normative_folder}"
     
@@ -212,11 +203,21 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
     )
 
     prompt = (
-        f"DATOS DE LA SOLICITUD:\n"
+        f"NORMATIVA Y RÚBRICA INSTITUCIONAL DE REFERENCIA:\n{institutional_normative}\n\n"
+        f"=================================================================\n"
+        f"DATOS DE LA SOLICITUD A AUDITAR:\n"
         f"- Nivel académico declarado: {academic_level}\n"
         f"- Etapa del trabajo declarada: {work_stage}\n\n"
-        f"Analiza los siguientes documentos del proyecto de investigación ajustando tu evaluación a este nivel académico:\n\n{document_text}\n\n"
-        f"Considera la siguiente normativa/rúbrica institucional de referencia:\n{institutional_normative}"
+        f"DOCUMENTO COMPLETO DEL PROYECTO / TESIS DEL ESTUDIANTE (INCLUYE TEXTO Y TABLAS):\n\n{document_text}\n\n"
+        f"=================================================================\n"
+        f"INSTRUCCIÓN FINAL OBLIGATORIA DE FORMATO:\n"
+        f"Genera AHORA la 'HOJA DE RUTA DE CORRECCIONES IMPERATIVAS — PERSPECTA SALUD' recorriendo el documento página por página y capítulo por capítulo. "
+        f"Inicia con 'Instrucción general y aspectos logrados:' (indicando qué está bien y qué NO debe modificar, incluyendo la validación de la prueba estadística si ya es correcta). "
+        f"Luego estructura ABSOLUTAMENTE CADA CORRECCIÓN con estas 3 etiquetas exactas en líneas separadas:\n"
+        f"CORRECCIÓN 01 — [Título y Sección] (Página X) [CRÍTICO]\n"
+        f"DONDE DICE: [Cita textual exacta o valores actuales de la tabla con error/omisión]\n"
+        f"COLOCA: [Texto exacto corregido listo para copiar e insertar + breve explicación entre paréntesis]\n"
+        f"(PROHIBIDO usar el formato antiguo de 'OBSERVACIÓN / EXPLICACIÓN / ACCIÓN RECOMENDADA'; usa EXCLUSIVAMENTE 'CORRECCIÓN XX', 'DONDE DICE:' y 'COLOCA:')."
     )
 
     models_to_try = [

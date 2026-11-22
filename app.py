@@ -550,6 +550,92 @@ def create_docx(report_text, project_name, author_name):
     doc.save(bio)
     return bio.getvalue()
 
+def render_report_html(report_text):
+    import re
+    import html
+    lines = report_text.splitlines()
+    out = ['<div style="font-family:Inter,sans-serif;line-height:1.55;color:#112d54;">']
+    mode = None
+    donde_buf = []
+    coloca_buf = []
+
+    def flush_html_pair():
+        nonlocal mode, donde_buf, coloca_buf
+        if donde_buf or coloca_buf:
+            d_html = "<br>".join(html.escape(x) for x in donde_buf) or "—"
+            c_html = "<br>".join(html.escape(x) for x in coloca_buf) or "—"
+            out.append(
+                f'<table style="width:100%;border-collapse:collapse;margin:8px 0 18px 0;font-size:14px;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden;">'
+                f'<tr>'
+                f'<td style="width:135px;background:#fff4f4;color:#991b1b;font-weight:800;padding:10px 12px;border:1px solid #cbd5e1;vertical-align:top;">DONDE DICE:</td>'
+                f'<td style="background:#ffffff;color:#1e293b;padding:10px 14px;border:1px solid #cbd5e1;vertical-align:top;">{d_html}</td>'
+                f'</tr>'
+                f'<tr>'
+                f'<td style="width:135px;background:#e8f9fa;color:#072e68;font-weight:800;padding:10px 12px;border:1px solid #cbd5e1;vertical-align:top;">COLOCA:</td>'
+                f'<td style="background:#f8fcff;color:#072e68;padding:10px 14px;border:1px solid #cbd5e1;vertical-align:top;">{c_html}</td>'
+                f'</tr>'
+                f'</table>'
+            )
+        mode = None
+        donde_buf = []
+        coloca_buf = []
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        if re.match(r"^[1-9]\.\s+[A-ZÁÉÍÓÚÑ0-9\s:(),—–-]{5,}$", line):
+            flush_html_pair()
+            out.append(f'<h3 style="color:#072e68;background:#f3f9ff;padding:10px 14px;border-left:4px solid #08b8be;border-radius:6px;margin:22px 0 12px 0;font-size:17px;">{html.escape(line)}</h3>')
+            continue
+
+        if re.match(r"^CORRECCI[ÓO]N\s+\d+", line, re.IGNORECASE):
+            flush_html_pair()
+            esc = html.escape(line)
+            esc = re.sub(
+                r"\[CR[ÍI]TICO\]",
+                '<span style="background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:800;margin-left:6px;">[CRÍTICO]</span>',
+                esc,
+                flags=re.IGNORECASE
+            )
+            out.append(f'<div style="font-weight:800;color:#072e68;font-size:15px;margin:14px 0 4px 0;">{esc}</div>')
+            continue
+
+        m_donde = re.match(r"^\|?\s*DONDE\s+DICE\s*:\s*\|?(.*)$", line, re.IGNORECASE)
+        if m_donde:
+            if mode == "coloca" and (donde_buf or coloca_buf):
+                flush_html_pair()
+            mode = "donde"
+            rest = m_donde.group(1).strip().rstrip("|").strip()
+            if rest:
+                donde_buf.append(rest)
+            continue
+
+        m_coloca = re.match(r"^\|?\s*COLOCA\s*:\s*\|?(.*)$", line, re.IGNORECASE)
+        if m_coloca:
+            mode = "coloca"
+            rest = m_coloca.group(1).strip().rstrip("|").strip()
+            if rest:
+                coloca_buf.append(rest)
+            continue
+
+        if mode == "donde":
+            donde_buf.append(line)
+        elif mode == "coloca":
+            coloca_buf.append(line)
+        else:
+            if line.lower().startswith("hoja de ruta"):
+                out.append(f'<div style="background:#072e68;color:#ffffff;padding:14px 18px;border-radius:10px;font-weight:800;font-size:17px;margin-bottom:12px;">{html.escape(line)}</div>')
+            elif line.lower().startswith("instrucción general"):
+                out.append(f'<div style="background:#eef8ff;border:1px solid #08b8be;padding:14px 16px;border-radius:10px;margin-bottom:16px;font-size:14px;"><b>{html.escape(line)}</b></div>')
+            else:
+                out.append(f'<p style="margin:6px 0;font-size:14px;">{html.escape(line)}</p>')
+
+    flush_html_pair()
+    out.append("</div>")
+    return "\n".join(out)
+
 CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
@@ -628,7 +714,7 @@ def landing():
     <section class="stats"><div class="stat"><strong>5</strong><span>áreas auditadas</span></div><div class="stat"><strong>SPSS</strong><span>guía paso a paso</span></div><div class="stat"><strong>100%</strong><span>Word editable (.docx)</span></div><div class="stat"><strong>Desde S/ 4.90</strong><span>Planes accesibles</span></div></section>
     <section id="como" class="section anchor"><div class="head"><h2>¿Cómo funciona?</h2><p>Cuatro pasos sencillos para fortalecer tu investigación antes de presentarla.</p></div><div class="steps"><article class="step"><div class="number">1</div><h3>Selecciona</h3><p>Elige el plan individual o paquete de seguimiento para tu ciclo.</p></article><article class="step"><div class="number">2</div><h3>Activa</h3><p>Paga al instante con Mercado Pago o mediante QR directo.</p></article><article class="step"><div class="number">3</div><h3>Carga</h3><p>Sube tu documento indicando tu nivel (Pregrado, Maestría o Doctorado).</p></article><article class="step"><div class="number">4</div><h3>Descarga</h3><p>Recibe tu informe en Word (.docx) con párrafos modelo y guía en SPSS.</p></article></div></section>
     <section id="evaluamos" class="section soft anchor"><div class="head"><h2>Descubre qué auditamos en tu trabajo</h2><p>Criterios metodológicos y científicos rigurosos adaptados a tu nivel académico.</p></div><div class="areas"><article class="card"><span class="card-badge">Estructura & Lógica</span><h3>⚛ Coherencia científica</h3><p>Alineación estricta entre problema, objetivos, dimensiones y teoría, con realidad problemática en embudo (Mundial a Local).</p></article><article class="card"><span class="card-badge">Análisis Cuantitativo</span><h3>▣ Metodología y SPSS</h3><p>Análisis de tus variables y prescripción de la prueba estadística idónea explicada en lenguaje simple y con guía paso a paso en SPSS.</p></article><article class="card"><span class="card-badge">Estado del Arte</span><h3>▤ Antecedentes y literatura</h3><p>Verificación del umbral mínimo de antecedentes nacionales e internacionales ordenados cronológicamente y articulados a tus variables.</p></article><article class="card"><span class="card-badge">Normativa Académica</span><h3>❞ Estilo de citación</h3><p>Alineación estricta a normas Vancouver o APA y correspondencia bibliográfica con fuentes científicas indexadas.</p></article><article class="card"><span class="card-badge">Texto Listo</span><h3>♢ Aspectos éticos</h3><p>Redacción directa de principios bioéticos y consentimiento informado listos para insertar en tu documento sin trabas burocráticas.</p></article></div><div class="human"><img src="https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=1200&q=86" alt="Estudiantes revisando un proyecto"><div class="quote"><b>“</b><p>No te dejamos solo con la crítica: cada observación incluye la explicación clara y el párrafo modelo redactado para que lo copies y enriquezcas tu tesis.</p><small>Una auditoría diagnóstica formativa diseñada para tesistas</small></div></div></section>
-    <section id="informe" class="section anchor"><div class="head"><h2>Un informe en Word (.docx) diseñado para pasar a la acción</h2><p>Estructura clara de 3 partes en cada aspecto evaluado, sin notas ni calificaciones que desanimen.</p></div><div class="report"><div class="report-card"><div class="report-card-head">Vista previa del diagnóstico que recibirás</div><div class="preview-box"><span class="preview-tag">1. Observación puntual</span><div class="preview-text">Identifica con precisión metodológica qué requiere ajuste o alineación en tu documento.</div></div><div class="preview-box"><span class="preview-tag">2. Explicación comprensible</span><div class="preview-text">Desglosa el porqué académico en lenguaje claro adaptado a tu nivel declarado (Pregrado o Posgrado).</div></div><div class="preview-box"><span class="preview-tag">3. Sugerencia con texto modelo listo para insertar</span><div class="preview-text">Redacta el texto exacto adaptado a tus variables para que puedas copiarlo directamente a tu trabajo:</div><div class="preview-quote">"Para operacionalizar esta variable en tu estudio, debes redactar: Se consideró como dimensión principal..."</div></div><div class="preview-box"><span class="preview-tag">4. Tratamiento estadístico en SPSS</span><div class="preview-text">Determina la prueba exacta para tus datos, te la explica con ejemplos claros y te detalla el menú paso a paso en SPSS.</div></div></div><div class="benefits"><div><b>✓ Enfoque formativo, sin calificaciones</b><span>Cero notas que desanimen. Nos enfocamos al 100% en subsanar observaciones para que apruebes con solvencia.</span></div><div><b>✓ Párrafos modelo redactados</b><span>Ahorra horas de redacción recibiendo sugerencias listas para incorporar y adaptar a tu tesis.</span></div><div><b>✓ Tratamiento estadístico idóneo</b><span>Prescripción de la prueba exacta para tus datos explicada de forma sencilla y con paso a paso en SPSS.</span></div><div><b>🔒 Informe descargable en Word (.docx)</b><span>Documento formal, privado y 100% editable listo para trabajar sobre él.</span></div></div></div></section>
+    <section id="informe" class="section anchor"><div class="head"><h2>Hoja de Ruta en Word (.docx) con tablas DONDE DICE / COLOCA</h2><p>Recorre tu tesis página por página señalando con exactitud qué fragmento corregir y entregándote el texto listo para copiar y pegar.</p></div><div class="report"><div class="report-card"><div class="report-card-head">Vista previa de tu Hoja de Ruta de Correcciones Imperativas</div><div class="preview-box"><span class="preview-tag">Instrucción General y Lo Logrado</span><div class="preview-text">Reconoce lo que ya está bien planteado e indica qué aspectos NO debes modificar (ej. validando tu prueba estadística si ya es correcta).</div></div><div class="preview-box"><span class="preview-tag">CORRECCIÓN 03 — Resumen y Estadísticos (Página 8) [CRÍTICO]</span><div class="preview-text"><b>DONDE DICE:</b> Porcentajes con punto decimal (68.3 %) y '(Rho = 0.448; p = 0.000)'.</div><div class="preview-quote"><b>COLOCA:</b> Usa coma decimal (68,3 %) y reemplaza 'p = 0.000' por '(ρ = 0,448; p &lt; 0,001)' (en bioestadística nunca se reporta p = 0,000).</div></div><div class="preview-box"><span class="preview-tag">CORRECCIÓN 06 — Bases Teóricas y Articulación (Páginas 12–14) [CRÍTICO]</span><div class="preview-text"><b>DONDE DICE:</b> '...para diagnosticar la hiperemia gravídica (24).' y ausencia de teoría conductual.</div><div class="preview-quote"><b>COLOCA:</b> Cambia 'hiperemia gravídica' por 'hiperémesis gravídica' e inserta al final el párrafo modelo redactado del Modelo de Creencias en Salud...</div></div></div><div class="benefits"><div><b>✓ Formato quirúrgico DONDE DICE / COLOCA</b><span>Localiza el error en segundos en tu Word y reemplázalo con el texto exacto ya redactado.</span></div><div><b>✓ Lectura completa de Tablas y Anexos</b><span>Audita tus Tablas de Resultados, Matriz de Consistencia, Operacionalización y cuestionarios Likert.</span></div><div><b>✓ Tratamiento estadístico en SPSS</b><span>Valida tu prueba si es correcta o te prescribe la prueba exacta con guía paso a paso en SPSS.</span></div><div><b>🔒 Tablas ejecutivas en Word (.docx)</b><span>Documento formal, privado y 100% editable con tablas comparativas listas para aplicar.</span></div></div></div></section>
     <section id="empezar" class="section anchor"><div class="head"><h2>Planes y Tarifario</h2><p>Elige una revisión individual o ahorra con nuestros paquetes de seguimiento para todo tu ciclo.</p></div><div class="price-grid"><div class="price-card"><div><h3>1 Evaluación</h3><p style="color:var(--muted);font-size:14px">Ideal para una auditoría puntual antes de entregar.</p><div class="amount">S/ 4.90</div><small style="color:var(--muted)">Pago único</small><div class="checks"><div>1 auditoría completa de 5 áreas</div><div>Párrafos modelo listos para insertar</div><div>Tratamiento estadístico en SPSS</div><div>Informe descargable en Word (.docx)</div></div></div><a class="button" style="text-align:center" href="?page=review&pack=1">Elegir 1 Evaluación →</a></div><div class="price-card featured"><div class="badge-pop">Más elegido</div><div><h3>3 Evaluaciones</h3><p style="color:var(--muted);font-size:14px">Perfecto para corregir y validar tus avances sucesivos.</p><div class="amount">S/ 14.00</div><small style="color:var(--cyan);font-weight:700">S/ 4.66 por evaluación</small><div class="checks"><div>1 evaluación inmediata + código por 2 usos</div><div>Úsalas cuando quieras en tu ciclo</div><div>Párrafos modelo y guía en SPSS</div><div>Informes descargables en Word (.docx)</div></div></div><a class="button" style="text-align:center" href="?page=review&pack=3">Elegir Pack de 3 →</a></div><div class="price-card"><div><h3>5 Evaluaciones</h3><p style="color:var(--muted);font-size:14px">Para acompañar toda tu tesis o compartir con tu grupo.</p><div class="amount">S/ 20.00</div><small style="color:var(--cyan);font-weight:700">¡Solo S/ 4.00 por evaluación!</small><div class="checks"><div>1 evaluación inmediata + código por 4 usos</div><div>Máximo ahorro (Ahorras S/ 4.50)</div><div>Párrafos modelo y guía en SPSS</div><div>Informes descargables en Word (.docx)</div></div></div><a class="button" style="text-align:center" href="?page=review&pack=5">Elegir Pack de 5 →</a></div></div></section>
     <section class="section"><div class="head"><h2>Confianza, ética y confidencialidad</h2><p>Un servicio transparente diseñado para apoyar tu formación académica.</p></div><div class="security"><article><h3>🛡 Archivos protegidos</h3><p>Se procesan de forma privada y segura exclusivamente para generar tu informe de auditoría.</p></article><article><h3>🧠 Auditoría diagnóstica experta</h3><p>Identificamos debilidades para que las corrijas a tiempo. No reemplazamos a tu asesor ni redactamos tesis completas desde cero.</p></article><article><h3>⏱ Diagnóstico en minutos</h3><p>Sin semanas de espera para saber con certeza qué aspectos debes mejorar antes de entregar.</p></article></div></section>
     <section id="faq" class="section anchor"><div class="head"><h2>Preguntas frecuentes</h2></div><div class="faq"><details><summary>¿Perspecta Salud aprueba mi tesis o reemplaza a mi asesor?</summary><p>No. Perspecta Salud es una herramienta de auditoría diagnóstica previa. No redacta tesis completas desde cero ni sustituye la dirección académica de tu asesor, sino que identifica observaciones metodológicas y de coherencia a tiempo para que presentes un trabajo impecable.</p></details><details><summary>¿El informe me otorga una nota o calificación?</summary><p>No asignamos calificaciones numéricas. Nuestro enfoque es 100% formativo y constructivo: te explicamos qué corregir y te proporcionamos párrafos modelo listos para insertar en tu trabajo.</p></details><details><summary>¿Qué tipo de trabajos académicos pueden auditar?</summary><p>Proyectos de investigación, tesis en desarrollo y tesis finales en niveles de Pregrado, Maestría y Doctorado.</p></details><details><summary>¿Cómo funcionan los paquetes de 3 y 5 evaluaciones?</summary><p>Al pagar realizas tu primera revisión hoy y el sistema te genera automáticamente en pantalla un código secreto (ej. PACK-XXXXX) para usar tus evaluaciones restantes cuando tengas listos tus próximos avances.</p></details></div></section>
@@ -871,8 +957,8 @@ def review():
                     f"🎁 **Recuerda guardar tu código de paquete:** **`{st.session_state['generated_pack_code']}`** "
                     f"(Te quedan **{extra_evals} evaluaciones adicionales** para usar cuando quieras)."
                 )
-            st.subheader("Resultado de la revisión")
-            st.write(st.session_state.report)
+            st.subheader("📋 Hoja de Ruta de Correcciones Imperativas")
+            st.markdown(render_report_html(st.session_state.report), unsafe_allow_html=True)
             
             # Generar Word File
             date=datetime.datetime.now().strftime("%d%m%Y")
