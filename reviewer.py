@@ -8,85 +8,461 @@ import time
 from google import genai
 from google.genai import types
 
+import unicodedata
 import pandas as pd
 import requests
 
+_STOPWORDS_BIB = {
+    "de", "la", "el", "los", "las", "en", "del", "al", "un", "una", "unos", "unas",
+    "por", "para", "con", "sin", "sobre", "entre", "hacia", "durante", "segun", "como",
+    "mas", "sus", "este", "esta", "estos", "estas", "estudio", "investigacion", "nivel",
+    "the", "of", "and", "in", "for", "with", "on", "to", "from", "among", "between",
+    "during", "towards", "toward", "study", "research", "associated", "factors", "level",
+    "disponible", "fuente", "fuentes", "verificada", "verificadas", "agregar", "bibliografia",
+    "vancouver", "verifica", "lee", "corrobora", "personalmente", "enlace", "documento"
+}
+
+def _norm_ascii(s):
+    s = unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode("ascii").lower()
+    return re.sub(r"[^a-z0-9\s]", " ", s)
+
+def _content_words(s):
+    return [w for w in _norm_ascii(s).split() if len(w) >= 4 and w not in _STOPWORDS_BIB and not w.isdigit()]
+
+def _format_crossref_item(m):
+    raw_doi = (m.get("DOI") or "").strip()
+    title = " ".join(m.get("title") or []).strip().rstrip(".")
+    authors_raw = m.get("author") or []
+    surnames = []
+    van_auths = []
+    for a in authors_raw[:6]:
+        fam = (a.get("family") or "").strip()
+        giv = (a.get("given") or "").strip()
+        if fam:
+            for part_f in re.split(r"[\s\-]+", fam):
+                if len(part_f) >= 3:
+                    surnames.append(_norm_ascii(part_f).strip())
+            inits = "".join(p[0].upper() for p in giv.split() if p and p[0].isalpha())
+            van_auths.append(f"{fam} {inits}".strip())
+        elif a.get("name"):
+            inst_n = a.get("name").strip()
+            van_auths.append(inst_n)
+            surnames.extend(w for w in _norm_ascii(inst_n).split() if len(w) >= 4)
+    if len(authors_raw) > 6:
+        van_auths.append("et al")
+    for a in authors_raw[6:]:
+        fam = (a.get("family") or "").strip()
+        for part_f in re.split(r"[\s\-]+", fam):
+            if len(part_f) >= 3:
+                surnames.append(_norm_ascii(part_f).strip())
+
+    journal = " ".join(m.get("container-title") or m.get("short-container-title") or []).strip() or (m.get("publisher") or "").strip()
+    year = ""
+    for k in ("published-print", "published-online", "issued", "created"):
+        dp = ((m.get(k) or {}).get("date-parts") or [[]])[0]
+        if dp and dp[0]:
+            year = str(dp[0])
+            break
+    vol = str(m.get("volume") or "").strip()
+    iss = str(m.get("issue") or "").strip()
+    page = str(m.get("page") or m.get("article-number") or "").strip()
+    vol_p = f"{vol}({iss})" if (vol and iss) else vol
+    loc_p = f"{year};{vol_p}:{page}" if (vol_p and page) else (f"{year};{vol_p}" if vol_p else year)
+    auth_str = ", ".join(van_auths) or "Autor institucional"
+    j_str = f" {journal}." if journal else ""
+    l_str = f" {loc_p}." if loc_p else ""
+    van = f"{auth_str}. {title}.{j_str}{l_str} Disponible en: https://doi.org/{raw_doi}"
+    return {
+        "title": title,
+        "surnames": [s for s in surnames if s],
+        "year": year,
+        "journal": journal,
+        "doi": raw_doi,
+        "vancouver": re.sub(r"\s+", " ", van).strip()
+    }
+
+def _format_openalex_item(w):
+    doi_url = (w.get("doi") or "").strip()
+    raw_doi = re.sub(r"^https?://doi\.org/", "", doi_url, flags=re.IGNORECASE).strip()
+    title = (w.get("title") or "").strip().rstrip(".")
+    auth_list = w.get("authorships") or []
+    surnames = []
+    van_auths = []
+    for idx, a in enumerate(auth_list):
+        dn = ((a.get("author") or {}).get("display_name") or "").strip()
+        if not dn:
+            continue
+        pts = [p for p in re.split(r"\s+", dn) if p]
+        for p in pts:
+            for sub_p in re.split(r"[\-.]+", p):
+                if len(sub_p) >= 3:
+                    surnames.append(_norm_ascii(sub_p).strip())
+        if idx < 6:
+            if len(pts) >= 2:
+                # Si tiene 3+ palabras (típico hispano: Nombre Apellido1 Apellido2), conservar apellidos
+                if len(pts) >= 3:
+                    fam_part = f"{pts[-2]} {pts[-1]}"
+                    init_part = "".join(x[0].upper() for x in pts[:-2] if x[0].isalpha())
+                else:
+                    fam_part = pts[-1]
+                    init_part = "".join(x[0].upper() for x in pts[:-1] if x[0].isalpha())
+                van_auths.append(f"{fam_part} {init_part}".strip())
+            else:
+                van_auths.append(dn)
+    if len(auth_list) > 6:
+        van_auths.append("et al")
+
+    journal = (((w.get("primary_location") or {}).get("source") or {}).get("display_name") or "").strip()
+    year = str(w.get("publication_year") or "").strip()
+    bib = w.get("biblio") or {}
+    vol = str(bib.get("volume") or "").strip()
+    iss = str(bib.get("issue") or "").strip()
+    fp = str(bib.get("first_page") or "").strip()
+    lp = str(bib.get("last_page") or "").strip()
+    page = f"{fp}-{lp}" if (fp and lp and fp != lp) else fp
+    vol_p = f"{vol}({iss})" if (vol and iss) else vol
+    loc_p = f"{year};{vol_p}:{page}" if (vol_p and page) else (f"{year};{vol_p}" if vol_p else year)
+    auth_str = ", ".join(van_auths) or "Autor institucional"
+    j_str = f" {journal}." if journal else ""
+    l_str = f" {loc_p}." if loc_p else ""
+    van = f"{auth_str}. {title}.{j_str}{l_str} Disponible en: https://doi.org/{raw_doi}"
+
+    inv = w.get("abstract_inverted_index") or {}
+    abs_txt = ""
+    if inv:
+        pos_map = {}
+        for word, positions in inv.items():
+            for p in positions:
+                pos_map[p] = word
+        abs_words = [pos_map[k] for k in sorted(pos_map.keys())[:45]]
+        abs_txt = " ".join(abs_words) + "..."
+
+    return {
+        "title": title,
+        "surnames": [s for s in surnames if s],
+        "year": year,
+        "journal": journal,
+        "doi": raw_doi,
+        "vancouver": re.sub(r"\s+", " ", van).strip(),
+        "abstract_snippet": abs_txt
+    }
+
+_DOI_META_CACHE = {}
+
+def _fetch_doi_metadata(raw_doi):
+    key = raw_doi.lower().strip()
+    if key in _DOI_META_CACHE:
+        return _DOI_META_CACHE[key]
+    meta = None
+    try:
+        r = requests.get(f"https://api.crossref.org/works/{raw_doi}", timeout=4.0)
+        if r.status_code == 200:
+            m = r.json().get("message", {})
+            if m.get("title"):
+                meta = _format_crossref_item(m)
+    except Exception:
+        pass
+    if not meta:
+        try:
+            r = requests.get(f"https://api.openalex.org/works/https://doi.org/{raw_doi}", timeout=4.0)
+            if r.status_code == 200:
+                w = r.json()
+                if w.get("title"):
+                    meta = _format_openalex_item(w)
+        except Exception:
+            pass
+    _DOI_META_CACHE[key] = meta
+    return meta
+
+def _check_title_and_author_match(context_text, meta, strict_title=True):
+    """
+    Corrobora simultáneamente coincidencia de AUTORES y TÍTULO entre lo escrito y el registro oficial del DOI.
+    """
+    if not meta or not meta.get("title"):
+        return False
+    ctx_norm = f" {_norm_ascii(context_text)} "
+    surnames = [sn for sn in (meta.get("surnames") or []) if len(sn) >= 3]
+    matched_authors = sum(1 for sn in set(surnames) if f" {sn} " in ctx_norm)
+    if matched_authors == 0:
+        return False
+
+    # Si no se exige título en el mismo idioma (ej. párrafo en español que cita 'Janz y Becker (1984)' + DOI suelto),
+    # basta con que coincida el autor + el año de publicación, o 2 apellidos de autores, o 1 palabra del título
+    if not strict_title:
+        yr = (meta.get("year") or "").strip()
+        if yr and yr in context_text:
+            return True
+        if matched_authors >= 2:
+            return True
+
+    t_words = _content_words(meta["title"])
+    if not t_words:
+        return matched_authors >= 1
+    ctx_words = set(_content_words(context_text))
+    matched = sum(1 for w in set(t_words) if w in ctx_words)
+    ratio = matched / max(1, len(set(t_words)))
+
+    if strict_title:
+        return matched >= 2 and ratio >= 0.42
+    return matched >= 1 or ratio >= 0.20
+
+def _search_verified_work_strict(query_txt):
+    """
+    Busca en Crossref y OpenAlex exigiendo MATCH ESTRICTO SIMULTÁNEO de TÍTULO + AUTORES antes de aceptarlo.
+    """
+    clean_q = re.sub(r"Fuente[s]?\s+verificada[s]?.*?:", "", query_txt, flags=re.IGNORECASE)
+    clean_q = re.sub(r"\(Verifica.*?\)", "", clean_q, flags=re.IGNORECASE)
+    clean_q = re.sub(r"(?:Disponible en:\s*)?https?://\S+", "", clean_q, flags=re.IGNORECASE).strip()
+    if len(clean_q) < 20:
+        return None
+
+    # 1. Buscar en Crossref (top 5)
+    try:
+        r = requests.get(
+            "https://api.crossref.org/works",
+            params={"query.bibliographic": clean_q[:240], "rows": 5},
+            timeout=4.0
+        )
+        if r.status_code == 200:
+            for item in r.json().get("message", {}).get("items", []):
+                if item.get("DOI") and item.get("title"):
+                    cand = _format_crossref_item(item)
+                    if _check_title_and_author_match(clean_q, cand, strict_title=True):
+                        return cand
+    except Exception:
+        pass
+
+    # 2. Buscar en OpenAlex (top 5, ideal para revistas peruanas/latinoamericanas OJS/SciELO)
+    try:
+        r = requests.get(
+            "https://api.openalex.org/works",
+            params={"search": clean_q[:200], "filter": "has_doi:true", "per_page": 5},
+            timeout=4.0
+        )
+        if r.status_code == 200:
+            for w in r.json().get("results", []):
+                if w.get("doi") and w.get("title"):
+                    cand = _format_openalex_item(w)
+                    if _check_title_and_author_match(clean_q, cand, strict_title=True):
+                        return cand
+    except Exception:
+        pass
+
+    return None
+
+def _fetch_verified_literature_bank(document_text, client):
+    """
+    Pre-busca artículos reales e indexados en OpenAlex (Internacionales, Nacionales-Perú y Teorías)
+    con Título, Autores, Revista y DOI ya corroborados, para que la IA proponga estudios 100% existentes.
+    """
+    snippet = (document_text or "")[:3500]
+    es_q = ""
+    en_q = ""
+    th_q = ""
+    try:
+        q_resp = client.models.generate_content(
+            model="gemini-3.8-flash",
+            contents=(
+                "Extrae del siguiente inicio de tesis 3 consultas cortas de búsqueda académica (máximo 6 palabras clave cada una, sin comillas ni operadores booleanos) "
+                "y devuélvelas SOLO en JSON con llaves es_query (variables principales en español), en_query (variables principales en inglés) y theory_query (teoría o modelo clásico aplicable en inglés):\n\n"
+                + snippet
+            ),
+            config=types.GenerateContentConfig(temperature=0.0, max_output_tokens=1024)
+        )
+        jm = re.search(r"\{.*?\}", q_resp.text or "", re.DOTALL)
+        if jm:
+            qd = json.loads(jm.group(0))
+            es_q = (qd.get("es_query") or "").strip()
+            en_q = (qd.get("en_query") or "").strip()
+            th_q = (qd.get("theory_query") or "").strip()
+    except Exception:
+        pass
+
+    if not es_q:
+        words = _content_words(snippet[:800])
+        es_q = " ".join(words[:6])
+        en_q = es_q
+
+    sections = []
+
+    # A. Antecedentes Internacionales verificados (2020-2026, excluyendo Perú y repositorios genéricos Zenodo)
+    if en_q:
+        try:
+            r_int = requests.get(
+                "https://api.openalex.org/works",
+                params={
+                    "search": en_q,
+                    "filter": "has_doi:true,publication_year:2020-2026,type:article",
+                    "per_page": 10
+                },
+                timeout=5.0
+            )
+            if r_int.status_code == 200:
+                int_items = []
+                for w in r_int.json().get("results", []):
+                    countries = []
+                    for au in w.get("authorships") or []:
+                        countries.extend(au.get("countries") or [])
+                    if "PE" in countries:
+                        continue
+                    c = _format_openalex_item(w)
+                    if c["title"] and c["surnames"] and c["doi"] and "zenodo" not in c["doi"].lower():
+                        country_lbl = countries[0] if countries else "Internacional"
+                        ab = f" | Hallazgos/Resumen: {c['abstract_snippet']}" if c.get("abstract_snippet") else ""
+                        int_items.append((c["year"], f"- [{country_lbl}, {c['year']}] {c['vancouver']}{ab}"))
+                int_items.sort(key=lambda x: x[0])
+                if int_items:
+                    sections.append("ANTECEDENTES INTERNACIONALES REALES VERIFICADOS (TÍTULO + AUTORES + DOI COMPROBADOS):\n" + "\n".join(x[1] for x in int_items[:6]))
+        except Exception:
+            pass
+
+    # B. Antecedentes Nacionales (Perú) verificados (2019-2026)
+    if es_q:
+        try:
+            r_nac = requests.get(
+                "https://api.openalex.org/works",
+                params={
+                    "search": es_q,
+                    "filter": "has_doi:true,publication_year:2019-2026,authorships.countries:countries/pe",
+                    "per_page": 10
+                },
+                timeout=5.0
+            )
+            if r_nac.status_code == 200:
+                nac_items = []
+                for w in r_nac.json().get("results", []):
+                    c = _format_openalex_item(w)
+                    if c["title"] and c["surnames"] and c["doi"] and "zenodo" not in c["doi"].lower():
+                        ab = f" | Hallazgos/Resumen: {c['abstract_snippet']}" if c.get("abstract_snippet") else ""
+                        nac_items.append((c["year"], f"- [Perú, {c['year']}] {c['vancouver']}{ab}"))
+                nac_items.sort(key=lambda x: x[0])
+                if nac_items:
+                    sections.append("ANTECEDENTES NACIONALES (PERÚ) REALES VERIFICADOS (TÍTULO + AUTORES + DOI COMPROBADOS):\n" + "\n".join(x[1] for x in nac_items[:6]))
+        except Exception:
+            pass
+
+    # C. Artículos seminales de Teoría Científica verificados
+    if th_q:
+        try:
+            r_th = requests.get(
+                "https://api.openalex.org/works",
+                params={
+                    "search": th_q,
+                    "filter": "has_doi:true",
+                    "sort": "cited_by_count:desc",
+                    "per_page": 4
+                },
+                timeout=4.5
+            )
+            if r_th.status_code == 200:
+                th_items = []
+                for w in r_th.json().get("results", []):
+                    c = _format_openalex_item(w)
+                    if c["title"] and c["surnames"] and c["doi"]:
+                        th_items.append(f"- [Referencia Teórica Verificada] {c['vancouver']}")
+                if th_items:
+                    sections.append("REFERENCIAS TEÓRICAS SEMINALES VERIFICADAS (TÍTULO + AUTORES + DOI COMPROBADOS):\n" + "\n".join(th_items[:3]))
+        except Exception:
+            pass
+
+    return "\n\n".join(sections)
+
 def _verify_and_enrich_references(report_text):
     """
-    1. Verifica cada DOI (10.xxxx/...) presente en el reporte contra la API oficial de doi.org.
-       Si algún DOI da 404, consulta Crossref con el texto de esa línea y lo reemplaza por el DOI real verificado.
-    2. Si una línea de 'Fuente verificada' o referencia sugerida no incluye enlace (http/doi.org),
-       consulta Crossref automáticamente y le anexa 'Disponible en: https://doi.org/...' si encuentra coincidencia.
+    Auditor de integridad bibliográfica post-generación:
+    1. Para cada DOI citado en el reporte, consulta sus metadatos oficiales en Crossref/OpenAlex y verifica
+       el MATCH SIMULTÁNEO entre el TÍTULO del artículo y los AUTORES.
+    2. Si la IA entregó solo el DOI (sin autores/título completos), lo expande automáticamente a la cita
+       Vancouver COMPLETA (Autores, Título exacto, Revista, Año;Vol(Núm):Págs + DOI) para que el usuario
+       pueda corroborarlo visualmente por sí mismo.
+    3. Si un DOI es falso (404) o NO coincide en Título + Autores con lo escrito (alucinación cruzada),
+       busca en Crossref/OpenAlex exigiendo match estricto Título + Autor; si existe, coloca la referencia
+       oficial completa; si no existe (artículo alucinado), elimina el DOI falso y advierte validación manual.
     """
     doi_regex = re.compile(r'\b(10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)')
+    verify_note = "(Verifica, lee y corrobora personalmente la coincidencia de título, autores y texto completo en el enlace antes de incorporarlo a tu versión final)."
     lines = report_text.splitlines()
     out_lines = []
 
-    def _lookup_crossref_doi(query_txt):
-        clean_q = re.sub(r'Fuente[s]?\s+verificada[s]?.*?:', '', query_txt, flags=re.IGNORECASE)
-        clean_q = re.sub(r'\(Verifica.*?\)', '', clean_q, flags=re.IGNORECASE).strip()
-        if len(clean_q) < 18:
-            return None
-        try:
-            r = requests.get(
-                "https://api.crossref.org/works",
-                params={"query.bibliographic": clean_q[:220], "rows": 1},
-                timeout=3.5
-            )
-            if r.status_code == 200:
-                items = r.json().get("message", {}).get("items", [])
-                if items:
-                    cand = items[0]
-                    cand_doi = cand.get("DOI")
-                    # Verificar que al menos el apellido del primer autor o una palabra clave del título coincida
-                    cand_title = " ".join(cand.get("title", [])).lower()
-                    cand_authors = " ".join(a.get("family", "") for a in cand.get("author", [])).lower()
-                    q_lower = clean_q.lower()
-                    author_match = any(w in q_lower for w in cand_authors.split() if len(w) > 3)
-                    title_words = [w for w in re.findall(r'[a-záéíóúñ]{5,}', cand_title)]
-                    title_match = sum(1 for w in title_words[:6] if w in q_lower) >= 2
-                    if cand_doi and (author_match or title_match):
-                        return cand_doi
-        except Exception:
-            pass
-        return None
-
-    for line in lines:
-        # 1. Si la línea contiene un DOI, verificar que exista realmente en doi.org
+    for idx, line in enumerate(lines):
         matches = list(doi_regex.finditer(line))
+        is_fuente_line = bool(re.search(r"Fuente[s]?\s+verificada[s]?", line, re.IGNORECASE))
+
         if matches:
-            new_line = line
-            for m in matches:
-                raw_doi = m.group(1).rstrip(".,;)]")
-                is_valid = True
-                try:
-                    resp = requests.get(f"https://doi.org/api/handles/{raw_doi}", timeout=3.0)
-                    if resp.status_code == 404:
-                        is_valid = False
-                except Exception:
-                    is_valid = True
-                if not is_valid:
-                    line_wo_doi = new_line.replace(raw_doi, "").replace("https://doi.org/", "")
-                    replacement_doi = _lookup_crossref_doi(line_wo_doi)
-                    if replacement_doi:
-                        new_line = new_line.replace(raw_doi, replacement_doi)
+            raw_doi = matches[0].group(1).rstrip(".,;)]")
+            # Extraer el texto bibliográfico que la IA puso antes del DOI
+            stripped_bib = re.sub(r"Fuente[s]?\s+verificada[s]?.*?:", "", line, flags=re.IGNORECASE)
+            stripped_bib = re.sub(r"\(Verifica.*?\)", "", stripped_bib, flags=re.IGNORECASE)
+            stripped_bib = re.sub(r"(?:Disponible en:\s*)?https?://doi\.org/\S+", "", stripped_bib, flags=re.IGNORECASE)
+            stripped_bib = stripped_bib.replace(raw_doi, "").replace("doi:", "").replace("DOI:", "").strip(" .,;-")
+
+            meta = _fetch_doi_metadata(raw_doi)
+            prev_context = " ".join(lines[max(0, idx - 3):idx + 1])
+
+            # Caso A: La IA puso solo el DOI (o casi nada de referencia, < 45 caracteres)
+            if len(stripped_bib) < 45:
+                if meta and _check_title_and_author_match(prev_context, meta, strict_title=False):
+                    prefix = "Fuente verificada para agregar a tu bibliografía (Vancouver): " if is_fuente_line else ""
+                    out_lines.append(f"{prefix}{meta['vancouver']} {verify_note}")
+                else:
+                    # El DOI suelto ni siquiera coincide con el párrafo previo -> buscar con el párrafo o limpiar
+                    alt = _search_verified_work_strict(prev_context)
+                    if alt:
+                        prefix = "Fuente verificada para agregar a tu bibliografía (Vancouver): " if is_fuente_line else ""
+                        out_lines.append(f"{prefix}{alt['vancouver']} {verify_note}")
                     else:
-                        new_line = re.sub(r'(?:Disponible en:\s*)?https?://doi\.org/' + re.escape(raw_doi) + r'[.,;]?', '', new_line)
-                        new_line = new_line.replace(f"doi: {raw_doi}", "").replace(raw_doi, "")
-            out_lines.append(new_line)
+                        cleaned = re.sub(r"(?:Disponible en:\s*)?https?://doi\.org/" + re.escape(raw_doi) + r"[.,;]?", "", line)
+                        cleaned = cleaned.replace(raw_doi, "").strip()
+                        if cleaned:
+                            out_lines.append(cleaned)
+                continue
+
+            # Caso B: La IA escribió Autores + Título + DOI -> exigir MATCH ESTRICTO de Título + Autores
+            if meta and _check_title_and_author_match(stripped_bib, meta, strict_title=True):
+                # Coincidencia real verificada de Título y Autores: asegurar referencia Vancouver completa oficial
+                prefix = "Fuente verificada para agregar a tu bibliografía (Vancouver): " if is_fuente_line else ""
+                num_m = re.match(r"^(\d+[\.\)]\s*)", line.strip())
+                num_prefix = num_m.group(1) if (num_m and not is_fuente_line) else ""
+                note_str = f" {verify_note}" if is_fuente_line else ""
+                out_lines.append(f"{prefix}{num_prefix}{meta['vancouver']}{note_str}")
+                continue
+            else:
+                # El DOI no existe (404) o pertenece a OTRO artículo distinto al título/autores escritos
+                replacement = _search_verified_work_strict(stripped_bib)
+                if replacement:
+                    prefix = "Fuente verificada para agregar a tu bibliografía (Vancouver): " if is_fuente_line else ""
+                    num_m = re.match(r"^(\d+[\.\)]\s*)", line.strip())
+                    num_prefix = num_m.group(1) if (num_m and not is_fuente_line) else ""
+                    note_str = f" {verify_note}" if is_fuente_line else ""
+                    out_lines.append(f"{prefix}{num_prefix}{replacement['vancouver']}{note_str}")
+                else:
+                    # No existe match Título+Autor en bases científicas -> retirar DOI alucinado y avisar con transparencia
+                    no_doi_line = re.sub(r"(?:Disponible en:\s*)?https?://doi\.org/\S+", "", line, flags=re.IGNORECASE)
+                    no_doi_line = no_doi_line.replace(raw_doi, "").replace("doi:", "").replace("DOI:", "").strip(" .,;")
+                    no_doi_line = re.sub(
+                        r"Fuente[s]?\s+verificada[s]?\s+para\s+agregar\s+a\s+tu\s+bibliograf[íi]a\s*\(Vancouver\)\s*:",
+                        "Referencia sugerida (sin DOI confirmado automáticamente; corrobora título y autores en SciELO/PubMed antes de citarla):",
+                        no_doi_line,
+                        flags=re.IGNORECASE
+                    )
+                    out_lines.append(no_doi_line)
+                continue
+
+        # Caso C: Línea de 'Fuente verificada' donde la IA no puso ningún enlace ni DOI
+        if is_fuente_line and "http://" not in line.lower() and "https://" not in line.lower():
+            found = _search_verified_work_strict(line)
+            if found:
+                out_lines.append(f"Fuente verificada para agregar a tu bibliografía (Vancouver): {found['vancouver']} {verify_note}")
+            else:
+                relabeled = re.sub(
+                    r"Fuente[s]?\s+verificada[s]?\s+para\s+agregar\s+a\s+tu\s+bibliograf[íi]a\s*\(Vancouver\)\s*:",
+                    "Referencia clásica/institucional para agregar a tu bibliografía (corrobora edición o enlace oficial):",
+                    line,
+                    flags=re.IGNORECASE
+                )
+                out_lines.append(relabeled)
             continue
 
-        # 2. Si es una línea de 'Fuente verificada' sin enlace http/doi.org, buscar su DOI real en Crossref
-        if re.search(r'Fuente[s]?\s+verificada[s]?\s+para\s+agregar\s+a\s+tu\s+bibliograf[íi]a', line, re.IGNORECASE):
-            if "http://" not in line.lower() and "https://" not in line.lower() and "doi.org" not in line.lower():
-                found_doi = _lookup_crossref_doi(line)
-                if found_doi:
-                    # Insertar antes del paréntesis de advertencia si existe
-                    if "(Verifica" in line:
-                        idx = line.find("(Verifica")
-                        line = line[:idx].rstrip() + f" Disponible en: https://doi.org/{found_doi} " + line[idx:]
-                    else:
-                        line = line.rstrip() + f" Disponible en: https://doi.org/{found_doi}"
         out_lines.append(line)
 
     return "\n".join(out_lines)
@@ -261,6 +637,9 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
     else:
         return f"No se encontró la carpeta de normativas en el servidor: {normative_folder}"
     
+    # Pre-buscar banco de artículos científicos reales (Internacionales, Nacionales-Perú y Teorías) con match Título + Autores + DOI verificado
+    verified_lit_bank = _fetch_verified_literature_bank(document_text, client)
+
     sys_instruction = (
         "Eres un panel de alta especialidad académica (Asesor Científico Doctoral, Metodólogo y Bioestadístico, Auditor Clínico-Epidemiológico, Corrector de Estilo Vancouver y Revisor Normativo) actuando como Editor Académico Principal de Perspecta Salud.\n"
         "Tu misión es auditar minuciosamente el documento completo (incluyendo cada párrafo, cada tabla de resultados y cada tabla o instrumento de los anexos) y elaborar una HOJA DE RUTA DE CORRECCIONES IMPERATIVAS secuencial (sección por sección, desde la carátula hasta el último anexo), empleando el formato quirúrgico de contraste directo 'DONDE DICE:' / 'COLOCA:'.\n\n"
@@ -278,15 +657,15 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
         "- Audita Resumen y Palabras Claves: precisión metodológica ('tipo básico' en lugar de 'nivel básico' cuando el nivel/alcance es correlacional/descriptivo), uso obligatorio de coma decimal en todos los porcentajes (ej. 68,3 % en vez de 68.3 %), reemplazo obligatorio de 'p = 0.000' o 'p = 0,000' por 'p < 0,001' (explicando entre paréntesis que en bioestadística nunca se reporta p = 0,000), y al menos 5 descriptores científicos (DeCS/MeSH).\n\n"
         "2. CAPÍTULO I: INTRODUCCIÓN\n"
         "- 1.1 Realidad Problemática:\n"
-        "  * Estructura en embudo estricto: Verifica que transite desde el nivel MUNDIAL (OMS), al REGIONAL (OPS/Latinoamérica), luego al NACIONAL (MINSA/INEI) y aterrice obligatoriamente en el nivel LOCAL (caracterización demográfica y epidemiológica del distrito y del establecimiento o institución específica donde se ejecuta el estudio). Si falta el cierre local o algún nivel del embudo, redacta en 'COLOCA:' el párrafo completo listo para insertar CON su llamada de cita Vancouver e incluye inmediatamente al final de ese mismo 'COLOCA:' la línea 'Fuente verificada para agregar a tu bibliografía (Vancouver):' con la referencia completa y su enlace oficial directo o DOI real verificado.\n"
+        "  * Estructura en embudo estricto: Verifica que transite desde el nivel MUNDIAL (OMS), al REGIONAL (OPS/Latinoamérica), luego al NACIONAL (MINSA/INEI) y aterrice obligatoriamente en el nivel LOCAL (caracterización demográfica y epidemiológica del distrito y del establecimiento o institución específica donde se ejecuta el estudio). Si falta el cierre local o algún nivel del embudo, redacta en 'COLOCA:' el párrafo completo listo para insertar CON su llamada de cita Vancouver e incluye inmediatamente al final de ese mismo 'COLOCA:' la línea 'Fuente verificada para agregar a tu bibliografía (Vancouver):' con TODOS los datos bibliográficos completos (Autores, Título completo, Revista/Institución, Año y enlace oficial o DOI real verificado).\n"
         "  * Rigor epidemiológico: Detecta errores conceptuales o de indicadores (por ejemplo, confundir casos absolutos de muertes con tasas por cien mil nacidos vivos, o expresiones mal redactadas como 'maternidad materna' en vez de 'mortalidad materna').\n"
         "- 1.2 Antecedentes:\n"
         "  * Umbral mínimo según nivel académico declarado: Para Pregrado, exige como MÍNIMO 5 antecedentes internacionales y 5 nacionales (al menos 10 en total); para Posgrado (Maestría/Doctorado), exige como MÍNIMO 10 internacionales y 10 nacionales (al menos 20 en total).\n"
-        "  * Orden cronológico ascendente estricto: Deben ordenarse desde el más antiguo hasta el más reciente (ej. 2020 -> 2023 -> 2024 -> 2025). En 'COLOCA:', muestra la secuencia cronológica exacta ordenada de los autores que ya tiene y sugiere los estudios reales faltantes (buscados en tiempo real con google_search) incluyendo para CADA estudio sugerido su párrafo redactado listo para insertar y su 'Fuente verificada para agregar a tu bibliografía (Vancouver):' con el DOI real verificado (https://doi.org/...) o enlace directo a la revista científica.\n"
+        "  * Orden cronológico ascendente estricto: Deben ordenarse desde el más antiguo hasta el más reciente (ej. 2020 -> 2023 -> 2024 -> 2025). En 'COLOCA:', muestra la secuencia cronológica exacta ordenada de los autores que ya tiene y selecciona los estudios reales faltantes prioritariamente del 'BANCO DE LITERATURA CIENTÍFICA PRE-VERIFICADA' incluido en este prompt (o búscalos en tiempo real con google_search corroborando el match exacto entre Título del artículo y Autores antes de proponerlos). Para CADA estudio sugerido incluye su párrafo redactado listo para insertar y su 'Fuente verificada para agregar a tu bibliografía (Vancouver):' con Autores completos, Título exacto del artículo, Revista científica, Año;Volumen(Número):Páginas y DOI real verificado (https://doi.org/...).\n"
         "  * Corrige erratas textuales o redundancias dentro de los antecedentes (ej. 'conocimiento alto sobre conocimiento').\n"
         "- 1.3 Bases Teóricas y Marco Conceptual:\n"
         "  * Precisión clínica y científica: Detecta errores terminológicos graves (ej. escribir 'hiperemia gravídica' en lugar de 'hiperémesis gravídica', mezclar signos clínicos distintos en una misma cita, o escribir nombres bacteriológicos como 'E-coli' en lugar de 'Escherichia coli' en cursiva).\n"
-        "  * Articulación con Teoría Científica (OBLIGATORIO INCLUIR FUENTE VERIFICADA DE LA TEORÍA): Verifica que las variables y sus dimensiones estén respaldadas por una teoría o modelo científico clásico (ej. Modelo de Creencias en Salud de Rosenstock / Janz y Becker, Teoría de Jean Watson, Modelo de Dorothea Orem, etc.). Si falta o es débil, redacta en 'COLOCA:' el párrafo completo de articulación teórica listo para copiar e insertar al final de las Bases Teóricas con su llamada numérica de cita, e INCLUYE OBLIGATORIAMENTE al pie de ese mismo bloque 'COLOCA:' la línea: 'Fuente verificada para agregar a tu bibliografía (Vancouver): [Cita completa en Vancouver de la obra o artículo seminal de la teoría con su DOI real verificado https://doi.org/... o enlace oficial directo] (Verifica, lee y corrobora personalmente el enlace y documento antes de incorporarlo a tu versión final)'. NUNCA propongas una teoría o texto académico sin entregar en ese mismo bloque su fuente verificada completa.\n"
+        "  * Articulación con Teoría Científica (OBLIGATORIO INCLUIR REFERENCIA COMPLETA VERIFICADA DE LA TEORÍA): Verifica que las variables y sus dimensiones estén respaldadas por una teoría o modelo científico clásico (ej. Modelo de Creencias en Salud de Rosenstock / Janz y Becker, Teoría de Jean Watson, Modelo de Dorothea Orem, etc.). Si falta o es débil, redacta en 'COLOCA:' el párrafo completo de articulación teórica listo para copiar e insertar al final de las Bases Teóricas con su llamada numérica de cita, e INCLUYE OBLIGATORIAMENTE al pie de ese mismo bloque 'COLOCA:' la referencia Vancouver COMPLETA (Autores completos, Título completo exacto de la obra/artículo, Revista o Editorial, Año;Volumen(Número):Páginas y DOI real verificado https://doi.org/...).\n"
         "- 1.4 / 1.5 Justificación, Problemas, Objetivos e Hipótesis:\n"
         "  * Verifica numeración de subtítulos, signos de interrogación '?' en todos los problemas, mayúsculas en nombres propios de instituciones, y coherencia exacta entre problemas, objetivos, hipótesis y lo procesado en resultados.\n\n"
         "3. CAPÍTULO II: METODOLOGÍA\n"
@@ -314,7 +693,7 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
         "- Referencias Bibliográficas y Estilo Vancouver:\n"
         "  * Verifica que la lista final tenga numeración visible correlativa (1., 2., 3. ...) según orden de aparición en el texto.\n"
         "  * Corrige 'Disponible de:' por 'Disponible en:', fechas futuras erróneas y posición de las llamadas numéricas en todo el manuscrito (el número entre paréntesis debe ir ANTES del punto final y sin espacios dobles, ej. '...durante el embarazo (1).').\n"
-        "  * Lista todas las fuentes nuevas incorporadas en las correcciones anteriores con su referencia completa en estilo Vancouver y su DOI real verificado o enlace directo a la revista oficial (obtenido mediante google_search, NUNCA enlaces de búsqueda de Google Scholar), incluyendo SIEMPRE la nota obligatoria: '(Verifica, lee y corrobora personalmente cada fuente y enlace en las bases científicas antes de incorporarla en tu texto y bibliografía)'.\n\n"
+        "  * Lista todas las fuentes nuevas incorporadas en las correcciones anteriores con su referencia COMPLETA en estilo Vancouver (Autores completos, Título completo exacto, Revista, Año;Volumen(Número):Páginas y DOI real verificado https://doi.org/...), incluyendo SIEMPRE la nota obligatoria: '(Verifica, lee y corrobora personalmente la coincidencia de título, autores y texto completo en el enlace antes de incorporarlo a tu versión final)'.\n\n"
         "6. ANEXOS (CONSISTENCIA, OPERACIONALIZACIÓN, INSTRUMENTO Y CONSENTIMIENTO)\n"
         "- Audita exhaustivamente cada tabla y texto de los anexos:\n"
         "  * Anexo 1 (Matriz de Consistencia): Verifica que incluya todos los problemas específicos y que las dimensiones listadas coincidan con lo realmente evaluado en los objetivos y resultados.\n"
@@ -325,8 +704,10 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
         "Cada hallazgo debe redactarse EXACTAMENTE con esta estructura de 3 líneas/bloques para que el sistema lo convierta automáticamente en tablas ejecutivas dentro del archivo Word:\n"
         "CORRECCIÓN [Número de 2 dígitos: 01, 02, 03...] — [Subtítulo claro de la sección, tabla o anexo y tema] [Agregar '[CRÍTICO]' al final del título si la observación compromete la aprobación metodológica, clínica, estadística o normativa]\n"
         "DONDE DICE: [Cita textual exacta entre comillas de lo que dice el documento actual, o descripción precisa de la fila/celda de la tabla con sus valores actuales. Si hay varios errores en esa misma sección, numéralos como 1., 2., 3.]\n"
-        "COLOCA: [Instrucción directa, asertiva e imperativa con el texto exacto corregido listo para copiar y pegar, numerando 1., 2., 3. en correspondencia exacta con DONDE DICE, e incluyendo entre paréntesis la breve explicación pedagógica de por qué se aplica esa mejora. REGLA INQUEBRANTABLE: Siempre que en 'COLOCA:' propongas una teoría científica, un modelo teórico, un antecedente o un texto que cite datos o autores nuevos, incluye al final de ese mismo bloque 'COLOCA:' la línea 'Fuente verificada para agregar a tu bibliografía (Vancouver):' con la referencia completa en estilo Vancouver y su DOI real verificado (https://doi.org/...) o enlace directo oficial, seguido de '(Verifica, lee y corrobora personalmente el enlace y documento antes de incorporarlo a tu versión final)'.]\n\n"
+        "COLOCA: [Instrucción directa, asertiva e imperativa con el texto exacto corregido listo para copiar y pegar, numerando 1., 2., 3. en correspondencia exacta con DONDE DICE, e incluyendo entre paréntesis la breve explicación pedagógica de por qué se aplica esa mejora. REGLA INQUEBRANTABLE: Siempre que en 'COLOCA:' propongas una teoría científica, un modelo teórico, un antecedente o un texto que cite datos o autores nuevos, incluye al final de ese mismo bloque 'COLOCA:' la línea 'Fuente verificada para agregar a tu bibliografía (Vancouver): Apellido1 Iniciales, Apellido2 Iniciales. Título completo exacto del artículo. Revista Científica. Año;Volumen(Número):Páginas. Disponible en: https://doi.org/10.xxxx/xxxx (Verifica, lee y corrobora personalmente la coincidencia de título, autores y texto completo en el enlace antes de incorporarlo a tu versión final)'.]\n\n"
         "REGLAS ESTRICTAS DE NEGOCIO Y ESTILO:\n"
+        "- PROHIBIDO ENTREGAR SOLO EL DOI SIN REFERENCIA COMPLETA: NUNCA pongas únicamente el código o enlace DOI suelto. Para que el usuario pueda corroborar el artículo por sí mismo, TODA fuente propuesta debe mostrar obligatoriamente Autores completos, Título completo exacto del artículo, Revista, Año;Volumen(Número):Páginas y el enlace DOI.\n"
+        "- VALIDACIÓN OBLIGATORIA DE MATCH TÍTULO + AUTORES ANTES DE PROPONER UN ARTÍCULO: Antes de decidir incluir un artículo científico como propuesta, selecciónalo del 'BANCO DE LITERATURA CIENTÍFICA PRE-VERIFICADA' provisto en el prompt o verifica con google_search que el Título exacto del artículo y sus Autores coincidan al 100% con el registro del DOI. Queda terminantemente prohibido inventar estudios o mezclar autores con títulos o DOIs ajenos.\n"
         "- PROHIBIDO COLOCAR NÚMEROS DE PÁGINA: NUNCA coloques '(Página X)' ni 'Pág. X' en los títulos ni en el cuerpo de las correcciones, ya que no son referencia exacta. Ubica al estudiante indicando la sección exacta, el subtítulo, el número de tabla o el anexo (ej. 'CORRECCIÓN 01 — Carátula y Título', 'CORRECCIÓN 04 — 1.1 Realidad Problemática [CRÍTICO]', 'CORRECCIÓN 10 — Tabla 1 de Resultados [CRÍTICO]').\n"
         "- PROHIBIDO COLOCAR CALIFICACIÓN O PUNTAJE: No asignes notas sobre 20 ni sobre 100.\n"
         "- PROHIBIDO PROPONER TEORÍAS O TEXTOS SIN FUENTE VERIFICADA: Jamás propongas insertar una teoría, modelo conceptual, cifra epidemiológica o antecedente sin entregar inmediatamente en el mismo bloque 'COLOCA:' su referencia bibliográfica completa en estilo Vancouver con su DOI real verificado o enlace oficial directo.\n"
@@ -342,8 +723,17 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
         "```"
     )
 
+    lit_bank_section = (
+        f"=================================================================\n"
+        f"BANCO DE LITERATURA CIENTÍFICA PRE-VERIFICADA EN OPENALEX/CROSSREF PARA ESTA TESIS:\n"
+        f"(ESTOS ARTÍCULOS SON 100% REALES Y YA TIENEN MATCH VERIFICADO DE TÍTULO + AUTORES + REVISTA + DOI. "
+        f"ÚSALOS PRIORITARIAMENTE CUANDO SUGIERAS ANTECEDENTES O REFERENCIAS TEÓRICAS COPIANDO SUS DATOS EXACTOS):\n"
+        f"{verified_lit_bank}\n\n"
+    ) if verified_lit_bank else ""
+
     prompt = (
         f"NORMATIVA Y RÚBRICA INSTITUCIONAL DE REFERENCIA:\n{institutional_normative}\n\n"
+        f"{lit_bank_section}"
         f"=================================================================\n"
         f"DATOS DE LA SOLICITUD A AUDITAR:\n"
         f"- Nivel académico declarado: {academic_level}\n"
@@ -357,8 +747,8 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
         f"Luego estructura ABSOLUTAMENTE CADA CORRECCIÓN con estas 3 etiquetas exactas en líneas separadas:\n"
         f"CORRECCIÓN 01 — [Título de la Sección, Tabla o Anexo] [CRÍTICO]\n"
         f"DONDE DICE: [Cita textual exacta o valores actuales de las celdas de la tabla con error/omisión]\n"
-        f"COLOCA: [Texto exacto corregido listo para copiar e insertar + breve explicación entre paréntesis + Si propones una teoría, modelo, dato o antecedente nuevo, incluye obligatoriamente ahí mismo: 'Fuente verificada para agregar a tu bibliografía (Vancouver): ... Disponible en: https://doi.org/... (Verifica, lee y corrobora personalmente el enlace y documento antes de incorporarlo a tu versión final)']\n"
-        f"(PROHIBIDO colocar números de página y PROHIBIDO usar el formato antiguo de 'OBSERVACIÓN / EXPLICACIÓN / ACCIÓN RECOMENDADA'; usa EXCLUSIVAMENTE 'CORRECCIÓN XX', 'DONDE DICE:' y 'COLOCA:')."
+        f"COLOCA: [Texto exacto corregido listo para copiar e insertar + breve explicación entre paréntesis + Si propones una teoría, modelo, dato o antecedente nuevo, incluye obligatoriamente ahí mismo la referencia Vancouver COMPLETA (NUNCA solo el DOI): 'Fuente verificada para agregar a tu bibliografía (Vancouver): Apellido1 Iniciales, Apellido2 Iniciales. Título completo exacto del artículo. Revista Científica. Año;Volumen(Número):Páginas. Disponible en: https://doi.org/10.xxxx/xxxx (Verifica, lee y corrobora personalmente la coincidencia de título, autores y texto completo en el enlace antes de incorporarlo a tu versión final)']\n"
+        f"(PROHIBIDO entregar solo el DOI sin autores/título, PROHIBIDO colocar números de página y PROHIBIDO usar el formato antiguo de 'OBSERVACIÓN / EXPLICACIÓN / ACCIÓN RECOMENDADA'; usa EXCLUSIVAMENTE 'CORRECCIÓN XX', 'DONDE DICE:' y 'COLOCA:')."
     )
 
     models_to_try = [
