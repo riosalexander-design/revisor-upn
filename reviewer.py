@@ -528,10 +528,9 @@ def _extract_docx_content(doc):
     full_txt = "\n".join(lines)
     if tables_only:
         full_txt += (
-            "\n\n=================================================================\n"
-            f"INVENTARIO EXPLÍCITO DE LAS {len(tables_only)} TABLAS EXTRAÍDAS DEL DOCUMENTO WORD:\n"
-            "(DEBES AUDITAR OBLIGATORIAMENTE CADA UNA DE ESTAS TABLAS Y CITAR SU CONTENIDO EN 'DONDE DICE:'):\n"
-            + "\n".join(tables_only)
+            f"\n\n[RESUMEN DE TABLAS DEL DOCUMENTO WORD: Se extrajeron {len(tables_only)} tablas "
+            f"marcadas arriba como [TABLA DETECTADA #1] a [TABLA DETECTADA #{len(tables_only)}]. "
+            f"Audita obligatoriamente el contenido interno de cada una de ellas.]"
         )
     return full_txt
 
@@ -553,23 +552,24 @@ def extract_text_and_media_from_uploaded_file(uploaded_file):
         if name.endswith('.pdf'):
             doc = fitz.open(stream=raw_bytes, filetype="pdf")
             text = _extract_pdf_content(doc)
-            # Adjuntar también el PDF nativo para que el motor multimodal de Gemini vea visualmente todas las tablas e imágenes
-            if len(raw_bytes) <= 18 * 1024 * 1024:
+            # Adjuntar el PDF nativo únicamente si es escaneado o basado en imágenes (< 250 chars por página en promedio)
+            avg_chars = len(text.strip()) / max(1, len(doc))
+            if avg_chars < 250 and len(raw_bytes) <= 18 * 1024 * 1024:
                 media_parts.append(types.Part.from_bytes(data=raw_bytes, mime_type="application/pdf"))
         elif name.endswith('.docx'):
             doc = docx.Document(io.BytesIO(raw_bytes))
             text = _extract_docx_content(doc)
-            # Extraer imágenes incrustadas (ej. tablas de SPSS o matrices pegadas como imagen en el Word)
+            # Extraer imágenes incrustadas (ej. tablas de SPSS o matrices pegadas como imagen en el Word), omitiendo íconos pequeños (< 12 KB)
             img_count = 0
             for rel in doc.part.rels.values():
                 if "image" in rel.reltype:
                     part = rel.target_part
                     ctype = getattr(part, "content_type", "")
                     blob = getattr(part, "blob", b"")
-                    if ctype in ("image/png", "image/jpeg", "image/jpg", "image/webp") and 4000 <= len(blob) <= 4 * 1024 * 1024:
+                    if ctype in ("image/png", "image/jpeg", "image/jpg", "image/webp") and 12000 <= len(blob) <= 4 * 1024 * 1024:
                         media_parts.append(types.Part.from_bytes(data=blob, mime_type=ctype))
                         img_count += 1
-                        if img_count >= 15:
+                        if img_count >= 8:
                             break
         elif name.endswith('.txt'):
             text = raw_bytes.decode('utf-8', errors='ignore')
@@ -622,17 +622,34 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
     if not document_text.strip() and not all_media_parts:
         return "No se encontraron documentos válidos o están vacíos."
 
-    # Extraer texto de la carpeta de normativas local del servidor (con caché en memoria)
+    # Extraer texto selectivo de la carpeta de normativas local del servidor (solo Rúbrica y Formato de Tesis, con caché en memoria)
     if normative_folder in _NORMATIVAS_CACHE:
         institutional_normative = _NORMATIVAS_CACHE[normative_folder]
     elif os.path.isdir(normative_folder):
+        include_keys = ("rúbrica", "rubrica", "cor-f-rec-vac", "formato")
+        exclude_keys = (
+            "ética", "etica", "comité", "comite", "desistimiento",
+            "cesión", "cesion", "autorización", "autorizacion", "política", "politica"
+        )
         institutional_normative = ""
+        fallback_normative = ""
         for root, dirs, files in os.walk(normative_folder):
-            for file in files:
+            for file in sorted(files):
                 if file.lower().endswith(('.pdf', '.docx', '.txt')):
                     path = os.path.join(root, file)
-                    institutional_normative += f"\n\n--- NORMATIVA: {file} ---\n\n"
-                    institutional_normative += extract_text_from_local_file(path)
+                    f_low = file.lower()
+                    is_useful = any(k in f_low for k in include_keys) and not any(k in f_low for k in exclude_keys)
+                    if is_useful:
+                        institutional_normative += f"\n\n--- NORMATIVA: {file} ---\n\n"
+                        institutional_normative += extract_text_from_local_file(path)
+        if not institutional_normative.strip():
+            for root, dirs, files in os.walk(normative_folder):
+                for file in sorted(files):
+                    if file.lower().endswith(('.pdf', '.docx', '.txt')):
+                        path = os.path.join(root, file)
+                        fallback_normative += f"\n\n--- NORMATIVA: {file} ---\n\n"
+                        fallback_normative += extract_text_from_local_file(path)
+            institutional_normative = fallback_normative[:35000]
         _NORMATIVAS_CACHE[normative_folder] = institutional_normative
     else:
         return f"No se encontró la carpeta de normativas en el servidor: {normative_folder}"
@@ -661,7 +678,7 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
         "  * Rigor epidemiológico: Detecta errores conceptuales o de indicadores (por ejemplo, confundir casos absolutos de muertes con tasas por cien mil nacidos vivos, o expresiones mal redactadas como 'maternidad materna' en vez de 'mortalidad materna').\n"
         "- 1.2 Antecedentes:\n"
         "  * Umbral mínimo según nivel académico declarado: Para Pregrado, exige como MÍNIMO 5 antecedentes internacionales y 5 nacionales (al menos 10 en total); para Posgrado (Maestría/Doctorado), exige como MÍNIMO 10 internacionales y 10 nacionales (al menos 20 en total).\n"
-        "  * Orden cronológico ascendente estricto: Deben ordenarse desde el más antiguo hasta el más reciente (ej. 2020 -> 2023 -> 2024 -> 2025). En 'COLOCA:', muestra la secuencia cronológica exacta ordenada de los autores que ya tiene y selecciona los estudios reales faltantes prioritariamente del 'BANCO DE LITERATURA CIENTÍFICA PRE-VERIFICADA' incluido en este prompt (o búscalos en tiempo real con google_search corroborando el match exacto entre Título del artículo y Autores antes de proponerlos). Para CADA estudio sugerido incluye su párrafo redactado listo para insertar y su 'Fuente verificada para agregar a tu bibliografía (Vancouver):' con Autores completos, Título exacto del artículo, Revista científica, Año;Volumen(Número):Páginas y DOI real verificado (https://doi.org/...).\n"
+        "  * Orden cronológico ascendente estricto: Deben ordenarse desde el más antiguo hasta el más reciente (ej. 2020 -> 2023 -> 2024 -> 2025). En 'COLOCA:', muestra la secuencia cronológica exacta ordenada de los autores que ya tiene y selecciona los estudios reales faltantes prioritariamente del 'BANCO DE LITERATURA CIENTÍFICA PRE-VERIFICADA' incluido en este prompt (corroborando el match exacto entre Título del artículo y Autores antes de proponerlos). Para CADA estudio sugerido incluye su párrafo redactado listo para insertar y su 'Fuente verificada para agregar a tu bibliografía (Vancouver):' con Autores completos, Título exacto del artículo, Revista científica, Año;Volumen(Número):Páginas y DOI real verificado (https://doi.org/...).\n"
         "  * Corrige erratas textuales o redundancias dentro de los antecedentes (ej. 'conocimiento alto sobre conocimiento').\n"
         "- 1.3 Bases Teóricas y Marco Conceptual:\n"
         "  * Precisión clínica y científica: Detecta errores terminológicos graves (ej. escribir 'hiperemia gravídica' en lugar de 'hiperémesis gravídica', mezclar signos clínicos distintos en una misma cita, o escribir nombres bacteriológicos como 'E-coli' en lugar de 'Escherichia coli' en cursiva).\n"
@@ -707,7 +724,7 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
         "COLOCA: [Instrucción directa, asertiva e imperativa con el texto exacto corregido listo para copiar y pegar, numerando 1., 2., 3. en correspondencia exacta con DONDE DICE, e incluyendo entre paréntesis la breve explicación pedagógica de por qué se aplica esa mejora. REGLA INQUEBRANTABLE: Siempre que en 'COLOCA:' propongas una teoría científica, un modelo teórico, un antecedente o un texto que cite datos o autores nuevos, incluye al final de ese mismo bloque 'COLOCA:' la línea 'Fuente verificada para agregar a tu bibliografía (Vancouver): Apellido1 Iniciales, Apellido2 Iniciales. Título completo exacto del artículo. Revista Científica. Año;Volumen(Número):Páginas. Disponible en: https://doi.org/10.xxxx/xxxx (Verifica, lee y corrobora personalmente la coincidencia de título, autores y texto completo en el enlace antes de incorporarlo a tu versión final)'.]\n\n"
         "REGLAS ESTRICTAS DE NEGOCIO Y ESTILO:\n"
         "- PROHIBIDO ENTREGAR SOLO EL DOI SIN REFERENCIA COMPLETA: NUNCA pongas únicamente el código o enlace DOI suelto. Para que el usuario pueda corroborar el artículo por sí mismo, TODA fuente propuesta debe mostrar obligatoriamente Autores completos, Título completo exacto del artículo, Revista, Año;Volumen(Número):Páginas y el enlace DOI.\n"
-        "- VALIDACIÓN OBLIGATORIA DE MATCH TÍTULO + AUTORES ANTES DE PROPONER UN ARTÍCULO: Antes de decidir incluir un artículo científico como propuesta, selecciónalo del 'BANCO DE LITERATURA CIENTÍFICA PRE-VERIFICADA' provisto en el prompt o verifica con google_search que el Título exacto del artículo y sus Autores coincidan al 100% con el registro del DOI. Queda terminantemente prohibido inventar estudios o mezclar autores con títulos o DOIs ajenos.\n"
+        "- VALIDACIÓN OBLIGATORIA DE MATCH TÍTULO + AUTORES ANTES DE PROPONER UN ARTÍCULO: Antes de decidir incluir un artículo científico como propuesta, selecciónalo del 'BANCO DE LITERATURA CIENTÍFICA PRE-VERIFICADA' provisto en el prompt (o utiliza fuentes clásicas e institucionales verificables asegurando que el Título exacto del artículo y sus Autores coincidan al 100% con el registro oficial). Queda terminantemente prohibido inventar estudios, inventar DOIs o mezclar autores con títulos o DOIs ajenos.\n"
         "- PROHIBIDO COLOCAR NÚMEROS DE PÁGINA: NUNCA coloques '(Página X)' ni 'Pág. X' en los títulos ni en el cuerpo de las correcciones, ya que no son referencia exacta. Ubica al estudiante indicando la sección exacta, el subtítulo, el número de tabla o el anexo (ej. 'CORRECCIÓN 01 — Carátula y Título', 'CORRECCIÓN 04 — 1.1 Realidad Problemática [CRÍTICO]', 'CORRECCIÓN 10 — Tabla 1 de Resultados [CRÍTICO]').\n"
         "- PROHIBIDO COLOCAR CALIFICACIÓN O PUNTAJE: No asignes notas sobre 20 ni sobre 100.\n"
         "- PROHIBIDO PROPONER TEORÍAS O TEXTOS SIN FUENTE VERIFICADA: Jamás propongas insertar una teoría, modelo conceptual, cifra epidemiológica o antecedente sin entregar inmediatamente en el mismo bloque 'COLOCA:' su referencia bibliográfica completa en estilo Vancouver con su DOI real verificado o enlace oficial directo.\n"
@@ -770,7 +787,6 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
                     contents=contents_payload,
                     config=types.GenerateContentConfig(
                         system_instruction=sys_instruction,
-                        tools=[{"google_search": {}}],
                         max_output_tokens=32768,
                         temperature=0.2,
                     )
@@ -813,6 +829,18 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
                 
             except Exception as e:
                 last_error = str(e)
+                # Freno inmediato si se agotó el saldo prepago (Error 402) para no desperdiciar reintentos ni descontar usos al estudiante
+                if (
+                    "402" in last_error
+                    or "prepayment credits are depleted" in last_error.lower()
+                    or ("RESOURCE_EXHAUSTED" in last_error and "billing" in last_error.lower())
+                ):
+                    return (
+                        "Aviso del Sistema: El motor de evaluación requiere recarga temporal de créditos de IA en el servidor "
+                        "(Error 402: saldo prepago agotado en Google AI Studio). Tu código NO ha sido descontado. "
+                        "Por favor, comunícate por WhatsApp (+51 973 152 645) o a perspectasalud@gmail.com para reactivarlo de inmediato."
+                    )
+
                 # Si el modelo no existe o está bloqueado para esta API Key (404), no perdemos tiempo reintentando, pasamos al siguiente modelo.
                 if "404" in last_error or "NOT_FOUND" in last_error or "is no longer available" in last_error:
                     break 
@@ -820,4 +848,4 @@ def evaluate_project(uploaded_files, normative_folder, api_key, academic_level="
                 # Si es un error de saturación temporal (503), esperamos un poco y reintentamos con el mismo modelo
                 time.sleep(5 * (attempt + 1))
                 
-    return {"report": f"Error Crítico: Servidores de IA saturados. Se intentó conectar con todos los modelos disponibles sin éxito. Último error: {last_error}", "metadata": {}}
+    return f"Error Crítico: No fue posible completar la evaluación en este momento (tu código no fue descontado). Último error: {last_error}"

@@ -74,6 +74,11 @@ Este archivo (`AGENTS.md`) contiene la memoria histórica, decisiones de diseño
   - Configurada mediante `DATABASE_URL` en Streamlit Secrets / `.env` con `psycopg2-binary`.
   - Tablas exclusivas aisladas de otros proyectos: `perspecta_codes` (códigos y usos), `perspecta_codes_log` (historial de IPs y ubicaciones) y `perspecta_crm` (registro de clientes CRM).
   - Inmune a reinicios o actualizaciones (`git push`) de Streamlit Community Cloud.
+- **Optimizaciones de Costo y Protección Ante Errores de Cuota/Créditos (`reviewer.py`):**
+  - Carga selectiva de `normativas/` (solo Rúbrica de Evaluación y Formato de Tesis: ~5,000 tokens en lugar de ~100,400 tokens; ~95% de reducción, con fallback de hasta 35,000 caracteres si cambian los archivos).
+  - Búsqueda y verificación bibliográfica 100% gratuita con OpenAlex + Crossref (`$0.00`), sin recargo de pago de `google_search` en Gemini.
+  - Visión multimodal de PDF únicamente para PDFs escaneados (`< 250 chars/pág`), manteniendo la extracción completa de tablas XML de Word sin duplicación y capturas incrustadas (`>= 12 KB`, máx. 8 imágenes).
+  - Retorno inmediato como `str` ante errores `402` (saldo prepago agotado) o fallos críticos de API para evitar reintentos inútiles y proteger el saldo de usos de códigos de los clientes (`app.py` no descuenta usos cuando recibe `str`).
 
 ---
 
