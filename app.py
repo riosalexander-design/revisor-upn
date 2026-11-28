@@ -6,7 +6,7 @@ import csv
 import json
 import random
 import string
-import time
+import time as _time
 from pathlib import Path
 
 import mercadopago
@@ -781,7 +781,7 @@ def review():
                 )
             with col_code_btn:
                 unlock_clicked = st.button("🔓 Activar Código →", type="primary", use_container_width=True)
-            if unlock_clicked and time.time() < st.session_state.get("code_lock_until", 0):
+            if unlock_clicked and _time.time() < st.session_state.get("code_lock_until", 0):
                 st.error("⏳ Demasiados intentos fallidos. Espera 60 segundos e inténtalo de nuevo.")
                 unlock_clicked = False
             if unlock_clicked:
@@ -798,9 +798,9 @@ def review():
                 else:
                     st.session_state.code_fails = st.session_state.get("code_fails", 0) + 1
                     if st.session_state.code_fails >= 5:
-                        st.session_state.code_lock_until = time.time() + 60
+                        st.session_state.code_lock_until = _time.time() + 60
                         st.session_state.code_fails = 0
-                    time.sleep(1)
+                    _time.sleep(1)
                     st.error("❌ Código inválido o sin usos disponibles. Verifica que esté bien escrito.")
 
             st.markdown("---")
