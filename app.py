@@ -459,7 +459,7 @@ def create_docx(report_text, project_name, author_name):
     # Agregar Pie de Página (Footer)
     footer = section.footer
     footer_para = footer.paragraphs[0]
-    footer_para.text = "Contacto: perspectasalud@gmail.com | WhatsApp: +51 973 152 645 | Web: https://revisordetesis.streamlit.app/"
+    footer_para.text = "Contacto: perspectasalud@gmail.com | WhatsApp: +51 913 152 645 | Web: https://revisordetesis.streamlit.app/"
     
     # Títulos principales en la primera página
     doc.add_heading("Perspecta Salud", 0)
@@ -742,7 +742,7 @@ def landing():
                 <p style="color: #63738c; margin-bottom: 18px;">¿Dudas o necesitas Asesoría Estadística Avanzada? Comunícate directamente con nosotros:</p>
                 <div style="font-size: 17px; line-height: 2;">
                     <div>📧 <b>Correo:</b> <a href="mailto:perspectasalud@gmail.com" style="color: #072e68; text-decoration: none; font-weight: 600;">perspectasalud@gmail.com</a></div>
-                    <div>💬 <b>WhatsApp:</b> <a href="https://wa.me/51973152645" target="_blank" style="color: #08b8be; text-decoration: none; font-weight: 700;">+51 973 152 645</a></div>
+                    <div>💬 <b>WhatsApp:</b> <a href="https://wa.me/51913152645" target="_blank" style="color: #08b8be; text-decoration: none; font-weight: 700;">+51 913 152 645</a></div>
                 </div>
             </div>
             """,
@@ -753,7 +753,7 @@ def landing():
         html_code = """<div style="text-align: center;"><a href="https://info.flagcounter.com/OA6D"><img src="https://s01.flagcounter.com/countxl/OA6D/bg_FFFFFF/txt_000000/border_CCCCCC/columns_2/maxflags_4/viewers_Usuarios/labels_0/pageviews_1/flags_0/percent_0/" alt="Flag Counter" border="0"></a></div>"""
         components.html(html_code, height=180)
 
-    st.markdown(f'<footer class="footer"><div class="brand" style="display:flex;align-items:center;">{LOGO_SVG}Perspecta <span>Salud</span></div><div>Correo: perspectasalud@gmail.com · WhatsApp: +51 973 152 645</div><div>© 2026 Perspecta Salud</div></footer></main><div id="activar" class="anchor"></div>', unsafe_allow_html=True)
+    st.markdown(f'<footer class="footer"><div class="brand" style="display:flex;align-items:center;">{LOGO_SVG}Perspecta <span>Salud</span></div><div>Correo: perspectasalud@gmail.com · WhatsApp: +51 913 152 645</div><div>© 2026 Perspecta Salud</div></footer></main><div id="activar" class="anchor"></div>', unsafe_allow_html=True)
 
 
 def review():
@@ -871,10 +871,10 @@ def review():
                     st.image(str(QR_BIM_PATH), caption="Escanea el QR para pagar (Bim: 913152645)", width=220)
             with qr_col_txt:
                 st.write(
-                    f"Si prefieres pagar escaneando nuestro código QR directo (S/ {PRECIO_1:.2f}, S/ {PRECIO_3:.2f} o S/ {PRECIO_5:.2f}), realiza el pago y **envíanos la captura junto con tu Nombre y DNI a nuestro WhatsApp [+51 973 152 645](https://wa.me/51973152645)** para entregarte tu código de activación."
+                    f"Si prefieres pagar escaneando nuestro código QR directo (S/ {PRECIO_1:.2f}, S/ {PRECIO_3:.2f} o S/ {PRECIO_5:.2f}), realiza el pago y **envíanos la captura junto con tu Nombre y DNI a nuestro WhatsApp [+51 913 152 645](https://wa.me/51913152645)** para entregarte tu código de activación."
                 )
                 st.info(
-                    "💡 **Nota amable e importante:** El envío de la captura con tu Nombre y DNI al WhatsApp **+51 973 152 645** es **únicamente para pagos realizados mediante este código QR**. "
+                    "💡 **Nota amable e importante:** El envío de la captura con tu Nombre y DNI al WhatsApp **+51 913 152 645** es **únicamente para pagos realizados mediante este código QR**. "
                     "Si realizas tu pago con cualquiera de los botones de **Mercado Pago** de arriba, el proceso sigue siendo **100% automático** y no necesitas enviarnos comprobante."
                 )
 
