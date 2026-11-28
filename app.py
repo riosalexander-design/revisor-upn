@@ -21,13 +21,16 @@ from reviewer import evaluate_project
 load_dotenv()
 st.set_page_config(page_title="Perspecta Salud", page_icon="📘", layout="wide", initial_sidebar_state="collapsed")
 
-# Tarifario de Paquetes: (Evaluaciones, Precio en S/)
+# Tarifario: se lee de Streamlit Secrets (PRICE, PRICE_PACK3, PRICE_PACK5) con estos defaults
+PRECIO_1 = float(st.secrets.get("PRICE", os.getenv("PRICE", "4.90")))
+PRECIO_3 = float(st.secrets.get("PRICE_PACK3", os.getenv("PRICE_PACK3", "12.00")))
+PRECIO_5 = float(st.secrets.get("PRICE_PACK5", os.getenv("PRICE_PACK5", "20.00")))
 PACKAGES = {
-    "1 Evaluación — S/ 4.90": {"evals": 1, "price": 4.90, "title": "1 Evaluación - Perspecta Salud"},
-    "3 Evaluaciones — S/ 14.00 (Ahorra S/ 0.70)": {"evals": 3, "price": 14.00, "title": "Paquete 3 Evaluaciones - Perspecta Salud"},
-    "5 Evaluaciones — S/ 20.00 (¡Ahorra S/ 4.50!)": {"evals": 5, "price": 20.00, "title": "Paquete 5 Evaluaciones - Perspecta Salud"},
+    f"1 Evaluación — S/ {PRECIO_1:.2f}": {"evals": 1, "price": PRECIO_1, "title": "1 Evaluación - Perspecta Salud"},
+    f"3 Evaluaciones — S/ {PRECIO_3:.2f} (Ahorra S/ {3*PRECIO_1 - PRECIO_3:.2f})": {"evals": 3, "price": PRECIO_3, "title": "Paquete 3 Evaluaciones - Perspecta Salud"},
+    f"5 Evaluaciones — S/ {PRECIO_5:.2f} (¡Ahorra S/ {5*PRECIO_1 - PRECIO_5:.2f}!)": {"evals": 5, "price": PRECIO_5, "title": "Paquete 5 Evaluaciones - Perspecta Salud"},
 }
-PRICE = 4.90
+PRICE = PRECIO_1
 
 APP_URL = st.secrets.get("APP_URL", os.getenv("APP_URL", "https://revisordetesis.streamlit.app/"))
 API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
@@ -688,11 +691,11 @@ def verify_payment(payment_id):
         data = mercadopago.SDK(MP_TOKEN).payment().get(str(payment_id)).get("response", {})
         if data.get("status") == "approved" and data.get("currency_id") == "PEN":
             amt = float(data.get("transaction_amount", 0))
-            if amt >= 19.5:
+            if amt >= PRECIO_5 - 0.5:
                 return 5
-            elif amt >= 13.5:
+            elif amt >= PRECIO_3 - 0.5:
                 return 3
-            elif amt >= 4.5:
+            elif amt >= PRECIO_1 - 0.5:
                 return 1
         return 0
     except Exception:
@@ -714,11 +717,11 @@ def landing():
     nav()
     st.markdown(f"""
     <main><section id="inicio" class="hero anchor"><div><div class="eyebrow">Auditoría académica inteligente</div><h1>Audita tu proyecto de tesis antes de entregarlo a tu asesor o jurado</h1><p>Recibe en minutos una auditoría académica integral con observaciones precisas, tratamiento estadístico idóneo en SPSS y párrafos sugeridos listos para insertar en tu trabajo.</p><div class="actions"><a class="button" href="?page=review">Revisar mi proyecto →</a><a class="textlink" href="#informe" onclick="document.getElementById('informe').scrollIntoView({{behavior: 'smooth'}}); return false;">Ver estructura del informe ›</a></div><div class="trust"><span>Coherencia científica</span><span>Tratamiento estadístico (SPSS)</span><span>Párrafos listos para insertar</span><span>Word confidencial</span></div></div><div class="hero-media"><img src="https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&w=1200&q=86" alt="Estudiante trabajando en su investigación"><div class="score"><span class="tag">Auditoría Integral</span><b>Sin calificaciones</b><small>Orientación 100% constructiva con textos sugeridos</small></div></div></section>
-    <section class="stats"><div class="stat"><strong>5</strong><span>áreas auditadas</span></div><div class="stat"><strong>SPSS</strong><span>guía paso a paso</span></div><div class="stat"><strong>100%</strong><span>Word editable (.docx)</span></div><div class="stat"><strong>Desde S/ 4.90</strong><span>Planes accesibles</span></div></section>
+    <section class="stats"><div class="stat"><strong>5</strong><span>áreas auditadas</span></div><div class="stat"><strong>SPSS</strong><span>guía paso a paso</span></div><div class="stat"><strong>100%</strong><span>Word editable (.docx)</span></div><div class="stat"><strong>Desde S/ {PRECIO_1:.2f}</strong><span>Planes accesibles</span></div></section>
     <section id="como" class="section anchor"><div class="head"><h2>¿Cómo funciona?</h2><p>Cuatro pasos sencillos para fortalecer tu investigación antes de presentarla.</p></div><div class="steps"><article class="step"><div class="number">1</div><h3>Selecciona</h3><p>Elige el plan individual o paquete de seguimiento para tu ciclo.</p></article><article class="step"><div class="number">2</div><h3>Activa</h3><p>Paga al instante con Mercado Pago o mediante QR directo.</p></article><article class="step"><div class="number">3</div><h3>Carga</h3><p>Sube tu documento indicando tu nivel (Pregrado, Maestría o Doctorado).</p></article><article class="step"><div class="number">4</div><h3>Descarga</h3><p>Recibe tu informe en Word (.docx) con párrafos modelo y guía en SPSS.</p></article></div></section>
     <section id="evaluamos" class="section soft anchor"><div class="head"><h2>Descubre qué auditamos en tu trabajo</h2><p>Criterios metodológicos y científicos rigurosos adaptados a tu nivel académico.</p></div><div class="areas"><article class="card"><span class="card-badge">Estructura & Lógica</span><h3>⚛ Coherencia científica</h3><p>Alineación estricta entre problema, objetivos, dimensiones y teoría, con realidad problemática en embudo (Mundial a Local).</p></article><article class="card"><span class="card-badge">Análisis Cuantitativo</span><h3>▣ Metodología y SPSS</h3><p>Análisis de tus variables y prescripción de la prueba estadística idónea explicada en lenguaje simple y con guía paso a paso en SPSS.</p></article><article class="card"><span class="card-badge">Estado del Arte</span><h3>▤ Antecedentes y literatura</h3><p>Verificación del umbral mínimo de antecedentes nacionales e internacionales ordenados cronológicamente y articulados a tus variables.</p></article><article class="card"><span class="card-badge">Normativa Académica</span><h3>❞ Estilo de citación</h3><p>Alineación estricta a normas Vancouver o APA y correspondencia bibliográfica con fuentes científicas indexadas.</p></article><article class="card"><span class="card-badge">Texto Listo</span><h3>♢ Aspectos éticos</h3><p>Redacción directa de principios bioéticos y consentimiento informado listos para insertar en tu documento sin trabas burocráticas.</p></article></div><div class="human"><img src="https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=1200&q=86" alt="Estudiantes revisando un proyecto"><div class="quote"><b>“</b><p>No te dejamos solo con la crítica: cada observación incluye la explicación clara y el párrafo modelo redactado para que lo copies y enriquezcas tu tesis.</p><small>Una auditoría diagnóstica formativa diseñada para tesistas</small></div></div></section>
     <section id="informe" class="section anchor"><div class="head"><h2>Hoja de Ruta en Word (.docx) con tablas DONDE DICE / COLOCA</h2><p>Recorre tu tesis sección por sección señalando con exactitud qué fragmento o tabla corregir y entregándote el texto listo para copiar y pegar.</p></div><div class="report"><div class="report-card"><div class="report-card-head">Vista previa de tu Hoja de Ruta de Correcciones Imperativas</div><div class="preview-box"><span class="preview-tag">Instrucción General y Lo Logrado</span><div class="preview-text">Reconoce lo que ya está bien planteado e indica qué aspectos NO debes modificar (ej. validando tu prueba estadística si ya es correcta).</div></div><div class="preview-box"><span class="preview-tag">CORRECCIÓN 03 — Resumen y Estadísticos [CRÍTICO]</span><div class="preview-text"><b>DONDE DICE:</b> Porcentajes con punto decimal (68.3 %) y '(Rho = 0.448; p = 0.000)'.</div><div class="preview-quote"><b>COLOCA:</b> Usa coma decimal (68,3 %) y reemplaza 'p = 0.000' por '(ρ = 0,448; p &lt; 0,001)' (en bioestadística nunca se reporta p = 0,000).</div></div><div class="preview-box"><span class="preview-tag">CORRECCIÓN 06 — 1.3 Bases Teóricas y Articulación [CRÍTICO]</span><div class="preview-text"><b>DONDE DICE:</b> '...para diagnosticar la hiperemia gravídica (24).' y ausencia de teoría conductual.</div><div class="preview-quote"><b>COLOCA:</b> Cambia 'hiperemia gravídica' por 'hiperémesis gravídica' e inserta al final el párrafo modelo redactado del Modelo de Creencias en Salud con su fuente verificada y DOI...</div></div></div><div class="benefits"><div><b>✓ Formato quirúrgico DONDE DICE / COLOCA</b><span>Localiza el error en segundos en tu Word y reemplázalo con el texto exacto ya redactado.</span></div><div><b>✓ Lectura completa de Tablas y Anexos</b><span>Audita tus Tablas de Resultados, Matriz de Consistencia, Operacionalización y cuestionarios Likert.</span></div><div><b>✓ Tratamiento estadístico en SPSS</b><span>Valida tu prueba si es correcta o te prescribe la prueba exacta con guía paso a paso en SPSS.</span></div><div><b>🔒 Tablas ejecutivas en Word (.docx)</b><span>Documento formal, privado y 100% editable con tablas comparativas listas para aplicar.</span></div></div></div></section>
-    <section id="empezar" class="section anchor"><div class="head"><h2>Planes y Tarifario</h2><p>Elige una revisión individual o ahorra con nuestros paquetes de seguimiento para todo tu ciclo.</p></div><div class="price-grid"><div class="price-card"><div><h3>1 Evaluación</h3><p style="color:var(--muted);font-size:14px">Ideal para una auditoría puntual antes de entregar.</p><div class="amount">S/ 4.90</div><small style="color:var(--muted)">Pago único</small><div class="checks"><div>1 auditoría completa de 5 áreas</div><div>Párrafos modelo listos para insertar</div><div>Tratamiento estadístico en SPSS</div><div>Informe descargable en Word (.docx)</div></div></div><a class="button" style="text-align:center" href="?page=review&pack=1">Elegir 1 Evaluación →</a></div><div class="price-card featured"><div class="badge-pop">Más elegido</div><div><h3>3 Evaluaciones</h3><p style="color:var(--muted);font-size:14px">Perfecto para corregir y validar tus avances sucesivos.</p><div class="amount">S/ 14.00</div><small style="color:var(--cyan);font-weight:700">S/ 4.66 por evaluación</small><div class="checks"><div>1 evaluación inmediata + código por 2 usos</div><div>Úsalas cuando quieras en tu ciclo</div><div>Párrafos modelo y guía en SPSS</div><div>Informes descargables en Word (.docx)</div></div></div><a class="button" style="text-align:center" href="?page=review&pack=3">Elegir Pack de 3 →</a></div><div class="price-card"><div><h3>5 Evaluaciones</h3><p style="color:var(--muted);font-size:14px">Para acompañar toda tu tesis o compartir con tu grupo.</p><div class="amount">S/ 20.00</div><small style="color:var(--cyan);font-weight:700">¡Solo S/ 4.00 por evaluación!</small><div class="checks"><div>1 evaluación inmediata + código por 4 usos</div><div>Máximo ahorro (Ahorras S/ 4.50)</div><div>Párrafos modelo y guía en SPSS</div><div>Informes descargables en Word (.docx)</div></div></div><a class="button" style="text-align:center" href="?page=review&pack=5">Elegir Pack de 5 →</a></div></div></section>
+    <section id="empezar" class="section anchor"><div class="head"><h2>Planes y Tarifario</h2><p>Elige una revisión individual o ahorra con nuestros paquetes de seguimiento para todo tu ciclo.</p></div><div class="price-grid"><div class="price-card"><div><h3>1 Evaluación</h3><p style="color:var(--muted);font-size:14px">Ideal para una auditoría puntual antes de entregar.</p><div class="amount">S/ {PRECIO_1:.2f}</div><small style="color:var(--muted)">Pago único</small><div class="checks"><div>1 auditoría completa de 5 áreas</div><div>Párrafos modelo listos para insertar</div><div>Tratamiento estadístico en SPSS</div><div>Informe descargable en Word (.docx)</div></div></div><a class="button" style="text-align:center" href="?page=review&pack=1">Elegir 1 Evaluación →</a></div><div class="price-card featured"><div class="badge-pop">Más elegido</div><div><h3>3 Evaluaciones</h3><p style="color:var(--muted);font-size:14px">Perfecto para corregir y validar tus avances sucesivos.</p><div class="amount">S/ {PRECIO_3:.2f}</div><small style="color:var(--cyan);font-weight:700">S/ {PRECIO_3/3:.2f} por evaluación</small><div class="checks"><div>1 evaluación inmediata + código por 2 usos</div><div>Úsalas cuando quieras en tu ciclo</div><div>Párrafos modelo y guía en SPSS</div><div>Informes descargables en Word (.docx)</div></div></div><a class="button" style="text-align:center" href="?page=review&pack=3">Elegir Pack de 3 →</a></div><div class="price-card"><div><h3>5 Evaluaciones</h3><p style="color:var(--muted);font-size:14px">Para acompañar toda tu tesis o compartir con tu grupo.</p><div class="amount">S/ {PRECIO_5:.2f}</div><small style="color:var(--cyan);font-weight:700">¡Solo S/ {PRECIO_5/5:.2f} por evaluación!</small><div class="checks"><div>1 evaluación inmediata + código por 4 usos</div><div>Máximo ahorro (Ahorras S/ {5*PRECIO_1 - PRECIO_5:.2f})</div><div>Párrafos modelo y guía en SPSS</div><div>Informes descargables en Word (.docx)</div></div></div><a class="button" style="text-align:center" href="?page=review&pack=5">Elegir Pack de 5 →</a></div></div></section>
     <section class="section"><div class="head"><h2>Confianza, ética y confidencialidad</h2><p>Un servicio transparente diseñado para apoyar tu formación académica.</p></div><div class="security"><article><h3>🛡 Archivos protegidos</h3><p>Se procesan de forma privada y segura exclusivamente para generar tu informe de auditoría.</p></article><article><h3>🧠 Auditoría diagnóstica experta</h3><p>Identificamos debilidades para que las corrijas a tiempo. No reemplazamos a tu asesor ni redactamos tesis completas desde cero.</p></article><article><h3>⏱ Diagnóstico en minutos</h3><p>Sin semanas de espera para saber con certeza qué aspectos debes mejorar antes de entregar.</p></article></div></section>
     <section id="faq" class="section anchor"><div class="head"><h2>Preguntas frecuentes</h2></div><div class="faq"><details><summary>¿Perspecta Salud aprueba mi tesis o reemplaza a mi asesor?</summary><p>No. Perspecta Salud es una herramienta de auditoría diagnóstica previa. No redacta tesis completas desde cero ni sustituye la dirección académica de tu asesor, sino que identifica observaciones metodológicas y de coherencia a tiempo para que presentes un trabajo impecable.</p></details><details><summary>¿El informe me otorga una nota o calificación?</summary><p>No asignamos calificaciones numéricas. Nuestro enfoque es 100% formativo y constructivo: te explicamos qué corregir y te proporcionamos párrafos modelo listos para insertar en tu trabajo.</p></details><details><summary>¿Qué tipo de trabajos académicos pueden auditar?</summary><p>Proyectos de investigación, tesis en desarrollo y tesis finales en niveles de Pregrado, Maestría y Doctorado.</p></details><details><summary>¿Cómo funcionan los paquetes de 3 y 5 evaluaciones?</summary><p>Al pagar realizas tu primera revisión hoy y el sistema te genera automáticamente en pantalla un código secreto (ej. PACK-XXXXX) para usar tus evaluaciones restantes cuando tengas listos tus próximos avances.</p></details></div></section>
     <section class="final"><div><h2>¿Listo para auditar tu investigación?</h2><p>Identifica debilidades a tiempo y lleva tu trabajo académico al siguiente nivel.</p></div><a class="button" href="?page=review">Revisar mi proyecto →</a></section>
@@ -727,7 +730,7 @@ def landing():
     # Bloque para Iniciar / FlagCounter / Formulario
     _, center, _ = st.columns([1, 1.25, 1])
     with center:
-        if st.button("Revisar mi proyecto desde S/ 4.90", type="primary", use_container_width=True):
+        if st.button(f"Revisar mi proyecto desde S/ {PRECIO_1:.2f}", type="primary", use_container_width=True):
             st.session_state.page = "review"
             st.rerun()
             
@@ -814,47 +817,47 @@ def review():
                 with p_col1:
                     with st.container(border=True):
                         st.markdown("#### 1 Evaluación")
-                        st.markdown("<div style='font-size:32px;font-weight:800;color:#072e68;margin:4px 0;'>S/ 4.90</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div style='font-size:32px;font-weight:800;color:#072e68;margin:4px 0;'>S/ {PRECIO_1:.2f}</div>", unsafe_allow_html=True)
                         st.caption("1 revisión inmediata con informe descargable en Word.")
                         try:
                             st.link_button(
-                                "⚡ Pagar S/ 4.90 (Mercado Pago)",
-                                payment_link(4.90, "1 Evaluación - Perspecta Salud"),
+                                f"⚡ Pagar S/ {PRECIO_1:.2f} (Mercado Pago)",
+                                payment_link(PRECIO_1, "1 Evaluación - Perspecta Salud"),
                                 type="primary",
                                 use_container_width=True
                             )
                         except Exception:
-                            st.error("Error al generar link S/ 4.90")
+                            st.error(f"Error al generar link S/ {PRECIO_1:.2f}")
 
                 with p_col2:
                     with st.container(border=True):
                         st.markdown("#### 🌟 3 Evaluaciones")
-                        st.markdown("<div style='font-size:32px;font-weight:800;color:#08b8be;margin:4px 0;'>S/ 14.00</div>", unsafe_allow_html=True)
-                        st.caption("1 revisión hoy + Código secreto con 2 usos adicionales (Ahorras S/ 0.70).")
+                        st.markdown(f"<div style='font-size:32px;font-weight:800;color:#08b8be;margin:4px 0;'>S/ {PRECIO_3:.2f}</div>", unsafe_allow_html=True)
+                        st.caption(f"1 revisión hoy + Código secreto con 2 usos adicionales (Ahorras S/ {3*PRECIO_1 - PRECIO_3:.2f}).")
                         try:
                             st.link_button(
-                                "⚡ Pagar S/ 14.00 (Mercado Pago)",
-                                payment_link(14.00, "Paquete 3 Evaluaciones - Perspecta Salud"),
+                                f"⚡ Pagar S/ {PRECIO_3:.2f} (Mercado Pago)",
+                                payment_link(PRECIO_3, "Paquete 3 Evaluaciones - Perspecta Salud"),
                                 type="primary",
                                 use_container_width=True
                             )
                         except Exception:
-                            st.error("Error al generar link S/ 14.00")
+                            st.error(f"Error al generar link S/ {PRECIO_3:.2f}")
 
                 with p_col3:
                     with st.container(border=True):
                         st.markdown("#### 🔥 5 Evaluaciones")
-                        st.markdown("<div style='font-size:32px;font-weight:800;color:#072e68;margin:4px 0;'>S/ 20.00</div>", unsafe_allow_html=True)
-                        st.caption("1 revisión hoy + Código secreto con 4 usos adicionales (¡Ahorras S/ 4.50!).")
+                        st.markdown(f"<div style='font-size:32px;font-weight:800;color:#072e68;margin:4px 0;'>S/ {PRECIO_5:.2f}</div>", unsafe_allow_html=True)
+                        st.caption(f"1 revisión hoy + Código secreto con 4 usos adicionales (¡Ahorras S/ {5*PRECIO_1 - PRECIO_5:.2f}!).")
                         try:
                             st.link_button(
-                                "⚡ Pagar S/ 20.00 (Mercado Pago)",
-                                payment_link(20.00, "Paquete 5 Evaluaciones - Perspecta Salud"),
+                                f"⚡ Pagar S/ {PRECIO_5:.2f} (Mercado Pago)",
+                                payment_link(PRECIO_5, "Paquete 5 Evaluaciones - Perspecta Salud"),
                                 type="primary",
                                 use_container_width=True
                             )
                         except Exception:
-                            st.error("Error al generar link S/ 20.00")
+                            st.error(f"Error al generar link S/ {PRECIO_5:.2f}")
             else:
                 st.warning("El sistema de pagos automáticos está en mantenimiento.")
 
@@ -868,7 +871,7 @@ def review():
                     st.image(str(QR_BIM_PATH), caption="Escanea el QR para pagar (Bim: 913152645)", width=220)
             with qr_col_txt:
                 st.write(
-                    "Si prefieres pagar escaneando nuestro código QR directo (S/ 4.90, S/ 14.00 o S/ 20.00), realiza el pago y **envíanos la captura junto con tu Nombre y DNI a nuestro WhatsApp [+51 973 152 645](https://wa.me/51973152645)** para entregarte tu código de activación."
+                    f"Si prefieres pagar escaneando nuestro código QR directo (S/ {PRECIO_1:.2f}, S/ {PRECIO_3:.2f} o S/ {PRECIO_5:.2f}), realiza el pago y **envíanos la captura junto con tu Nombre y DNI a nuestro WhatsApp [+51 973 152 645](https://wa.me/51973152645)** para entregarte tu código de activación."
                 )
                 st.info(
                     "💡 **Nota amable e importante:** El envío de la captura con tu Nombre y DNI al WhatsApp **+51 973 152 645** es **únicamente para pagos realizados mediante este código QR**. "
