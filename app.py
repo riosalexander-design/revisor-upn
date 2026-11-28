@@ -78,6 +78,12 @@ def _init_pg_tables():
                     ip TEXT,
                     ubicacion TEXT
                 );
+                CREATE TABLE IF NOT EXISTS perspecta_free_samples (
+                    email TEXT PRIMARY KEY,
+                    code TEXT NOT NULL,
+                    month TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS perspecta_crm (
                     id SERIAL PRIMARY KEY,
                     fecha TEXT NOT NULL,
@@ -339,6 +345,132 @@ def generate_pack_code(extra_uses):
     code = f"PACK-{suffix}"
     add_new_code(code, extra_uses)
     return code
+
+# ---------- Muestra gratis automática (1 código de 1 uso por correo, con tope mensual) ----------
+FREE_SAMPLES_FILE = "free_samples_db.json"
+FREE_SAMPLES_CAP = int(st.secrets.get("FREE_SAMPLES_MONTHLY_CAP", os.getenv("FREE_SAMPLES_MONTHLY_CAP", "30")))
+SMTP_HOST = st.secrets.get("SMTP_HOST", os.getenv("SMTP_HOST", "smtp.gmail.com"))
+SMTP_PORT = int(st.secrets.get("SMTP_PORT", os.getenv("SMTP_PORT", "465")))
+SMTP_USER = st.secrets.get("SMTP_USER", os.getenv("SMTP_USER", ""))
+SMTP_PASSWORD = st.secrets.get("SMTP_PASSWORD", os.getenv("SMTP_PASSWORD", ""))
+EMAIL_DELIVERY = bool(SMTP_USER and SMTP_PASSWORD)  # con correo real configurado, el código se envía solo al correo (no se muestra en pantalla)
+
+_DISPOSABLE_DOMAINS = {
+    "mailinator.com", "10minutemail.com", "guerrillamail.com", "tempmail.com", "temp-mail.org",
+    "yopmail.com", "trashmail.com", "sharklasers.com", "getnada.com", "maildrop.cc", "dispostable.com",
+}
+
+def normalize_email(raw):
+    """Devuelve el correo normalizado (minúsculas; en Gmail sin puntos ni +alias) o None si no es válido."""
+    import re
+    e = (raw or "").strip().lower()
+    if not re.fullmatch(r"[a-z0-9._%+\-]+@[a-z0-9\-]+(\.[a-z0-9\-]+)+", e) or len(e) > 120:
+        return None
+    local, domain = e.split("@", 1)
+    if domain in _DISPOSABLE_DOMAINS:
+        return None
+    if domain in ("gmail.com", "googlemail.com"):
+        local = local.split("+", 1)[0].replace(".", "")
+        domain = "gmail.com"
+    else:
+        local = local.split("+", 1)[0]
+    return f"{local}@{domain}"
+
+def _free_samples_local():
+    try:
+        with open(FREE_SAMPLES_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def request_free_sample(email_norm):
+    """Crea un código de 1 uso para este correo. Devuelve (estado, codigo): estado in ok | ya_existe | tope | error."""
+    month = datetime.datetime.now().strftime("%Y-%m")
+    created = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+    suffix = "".join(random.choices("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", k=6))
+    code = f"MUESTRA-{suffix}"
+    _init_pg_tables()
+    conn = _get_pg_conn()
+    if conn:
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute("LOCK TABLE perspecta_free_samples IN EXCLUSIVE MODE;")
+                    cur.execute("SELECT 1 FROM perspecta_free_samples WHERE email = %s;", (email_norm,))
+                    if cur.fetchone():
+                        return "ya_existe", None
+                    cur.execute("SELECT COUNT(*) FROM perspecta_free_samples WHERE month = %s;", (month,))
+                    if cur.fetchone()[0] >= FREE_SAMPLES_CAP:
+                        return "tope", None
+                    cur.execute("INSERT INTO perspecta_free_samples (email, code, month, created_at) VALUES (%s, %s, %s, %s);",
+                                (email_norm, code, month, created))
+                    cur.execute("INSERT INTO perspecta_codes (code, initial_uses, remaining_uses, created_at) VALUES (%s, 1, 1, %s);",
+                                (code, created))
+            conn.close()
+            return "ok", code
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            return "error", None
+    db = _free_samples_local()
+    if email_norm in db:
+        return "ya_existe", None
+    if sum(1 for v in db.values() if v.get("month") == month) >= FREE_SAMPLES_CAP:
+        return "tope", None
+    db[email_norm] = {"code": code, "month": month, "created_at": created}
+    try:
+        with open(FREE_SAMPLES_FILE, "w", encoding="utf-8") as f:
+            json.dump(db, f, ensure_ascii=False, indent=2)
+    except Exception:
+        return "error", None
+    add_new_code(code, 1)
+    return "ok", code
+
+def revoke_free_sample(email_norm, code):
+    """Deshace una muestra si el correo no pudo enviarse (para que pueda reintentar)."""
+    conn = _get_pg_conn()
+    if conn:
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM perspecta_free_samples WHERE email = %s;", (email_norm,))
+            conn.close()
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    else:
+        db = _free_samples_local()
+        db.pop(email_norm, None)
+        try:
+            with open(FREE_SAMPLES_FILE, "w", encoding="utf-8") as f:
+                json.dump(db, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+    delete_code(code)
+
+def send_sample_email(to_email, code):
+    import smtplib
+    from email.message import EmailMessage
+    msg = EmailMessage()
+    msg["Subject"] = "Tu código de muestra gratis - Perspecta Salud"
+    msg["From"] = f"Perspecta Salud <{SMTP_USER}>"
+    msg["To"] = to_email
+    msg.set_content(
+        f"Hola,\n\nTu código de muestra gratis (1 revisión) es: {code}\n\n"
+        f"Ingresa a {APP_URL}?page=review, escríbelo en el recuadro 'Ingresa tu código de activación' y sube tu proyecto.\n\n"
+        "Si necesitas ayuda, escríbenos por WhatsApp: +51 913 152 645.\n\nPerspecta Salud"
+    )
+    try:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15) as srv:
+            srv.login(SMTP_USER, SMTP_PASSWORD)
+            srv.send_message(msg)
+        return True
+    except Exception:
+        return False
 
 def registrar_operacion(proyecto, nivel, etapa, codigo_usado="Pago directo"):
     ip, loc = get_client_ip_and_location()
@@ -805,6 +937,45 @@ def review():
                         st.session_state.code_fails = 0
                     _time.sleep(1)
                     st.error("❌ Código inválido o sin usos disponibles. Verifica que esté bien escrito.")
+
+            st.markdown("---")
+
+            # 1b. MUESTRA GRATIS AUTOMÁTICA (1 código por correo)
+            st.subheader("🎁 ¿Quieres probarlo primero? Pide tu muestra gratis")
+            if EMAIL_DELIVERY:
+                st.caption("Escribe tu correo y te enviamos un código de 1 revisión gratis. Un código por persona.")
+            else:
+                st.caption("Escribe tu correo y obtén un código de 1 revisión gratis. Un código por correo.")
+            col_mail, col_mail_btn = st.columns([3, 1])
+            with col_mail:
+                sample_email = st.text_input("Tu correo", placeholder="tucorreo@ejemplo.com", label_visibility="collapsed", key="sample_email")
+            with col_mail_btn:
+                sample_clicked = st.button("🎁 Quiero mi muestra gratis", use_container_width=True)
+            if sample_clicked:
+                email_norm = normalize_email(sample_email)
+                if _time.time() < st.session_state.get("sample_lock_until", 0):
+                    st.error("⏳ Espera un momento antes de volver a intentar.")
+                elif not email_norm:
+                    st.error("Escribe un correo válido (no se aceptan correos temporales).")
+                else:
+                    st.session_state.sample_lock_until = _time.time() + 20
+                    status, sample_code = request_free_sample(email_norm)
+                    if status == "ok":
+                        log_code_usage(sample_code, action="Muestra gratis (código emitido)")
+                        if EMAIL_DELIVERY:
+                            if send_sample_email(email_norm, sample_code):
+                                st.success("✅ ¡Listo! Te enviamos tu código al correo. Revisa tu bandeja de entrada (y spam), escríbelo arriba en 'Ingresa tu código de activación'.")
+                            else:
+                                revoke_free_sample(email_norm, sample_code)
+                                st.error("No pudimos enviar el correo ahora. Inténtalo de nuevo en unos minutos o escríbenos por WhatsApp al +51 913 152 645.")
+                        else:
+                            st.success(f"✅ Tu código de muestra gratis es: **`{sample_code}`** (1 revisión). Cópialo y escríbelo arriba en 'Ingresa tu código de activación'.")
+                    elif status == "ya_existe":
+                        st.warning("Este correo ya recibió su muestra gratis. Si la perdiste o necesitas otra revisión, escríbenos por WhatsApp al +51 913 152 645.")
+                    elif status == "tope":
+                        st.info("Las muestras gratis de este mes ya se agotaron. Escríbenos por WhatsApp al +51 913 152 645 o elige un plan abajo.")
+                    else:
+                        st.error("No pudimos generar tu muestra ahora. Inténtalo de nuevo en unos minutos.")
 
             st.markdown("---")
 
