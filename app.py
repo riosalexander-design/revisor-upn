@@ -6,6 +6,7 @@ import csv
 import json
 import random
 import string
+import time
 from pathlib import Path
 
 import mercadopago
@@ -33,7 +34,7 @@ API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
 MP_TOKEN = st.secrets.get("MP_ACCESS_TOKEN", os.getenv("MP_ACCESS_TOKEN", ""))
 DATABASE_URL = st.secrets.get("DATABASE_URL", os.getenv("DATABASE_URL", ""))
 # Aceptamos ambas para que no haya problemas si usó la mía o la nueva
-ACCESS_CODE = st.secrets.get("ADMIN_PASSWORD", st.secrets.get("INSTITUTIONAL_CODE", "PERSPECTA2026"))
+ACCESS_CODE = st.secrets.get("ADMIN_PASSWORD", st.secrets.get("INSTITUTIONAL_CODE", ""))  # sin clave por defecto: si no hay Secret, no hay acceso admin
 NORMATIVAS = Path(__file__).parent / "normativas"
 
 # Base de datos de códigos multi-uso e historial de IPs (Respaldo local + Supabase PostgreSQL permanente)
@@ -133,6 +134,8 @@ def _save_codes_db(db):
         pass
 
 def get_code_uses(code_input):
+    if not code_input:
+        return 0
     db = _load_codes_db()
     val = db.get(code_input, 0)
     if isinstance(val, dict):
@@ -778,18 +781,26 @@ def review():
                 )
             with col_code_btn:
                 unlock_clicked = st.button("🔓 Activar Código →", type="primary", use_container_width=True)
+            if unlock_clicked and time.time() < st.session_state.get("code_lock_until", 0):
+                st.error("⏳ Demasiados intentos fallidos. Espera 60 segundos e inténtalo de nuevo.")
+                unlock_clicked = False
             if unlock_clicked:
                 clean_code = inst_code.strip()
                 uses_left = get_code_uses(clean_code)
                 if uses_left > 0:
                     st.session_state.paid = True
                     st.session_state.used_code = clean_code
-                    if clean_code == ACCESS_CODE:
+                    if ACCESS_CODE and clean_code == ACCESS_CODE:
                         st.session_state.is_admin = True
                     else:
                         log_code_usage(clean_code, action="Ingreso de código (Desbloqueo)")
                     st.rerun()
                 else:
+                    st.session_state.code_fails = st.session_state.get("code_fails", 0) + 1
+                    if st.session_state.code_fails >= 5:
+                        st.session_state.code_lock_until = time.time() + 60
+                        st.session_state.code_fails = 0
+                    time.sleep(1)
                     st.error("❌ Código inválido o sin usos disponibles. Verifica que esté bien escrito.")
 
             st.markdown("---")
@@ -895,7 +906,9 @@ def review():
                 new_code_name = col1.text_input("Nuevo código", placeholder="Ej. GANATIEMPO")
                 new_code_uses = col2.number_input("Número de usos", min_value=1, max_value=500, value=1)
                 if st.button("Crear código", type="primary"):
-                    if new_code_name.strip():
+                    if ACCESS_CODE and new_code_name.strip() == ACCESS_CODE:
+                        st.error("Ese código es igual a la clave maestra. Elige otro.")
+                    elif new_code_name.strip():
                         add_new_code(new_code_name.strip(), new_code_uses)
                         st.success(f"Código `{new_code_name.strip()}` creado con {new_code_uses} usos.")
                         st.rerun()
