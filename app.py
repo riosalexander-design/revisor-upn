@@ -25,6 +25,8 @@ st.set_page_config(page_title="Perspecta Salud", page_icon="📘", layout="wide"
 PRECIO_1 = float(st.secrets.get("PRICE", os.getenv("PRICE", "4.90")))
 PRECIO_3 = float(st.secrets.get("PRICE_PACK3", os.getenv("PRICE_PACK3", "12.00")))
 PRECIO_5 = float(st.secrets.get("PRICE_PACK5", os.getenv("PRICE_PACK5", "20.00")))
+PRECIO_ADV10 = float(st.secrets.get("PRICE_ADV10", os.getenv("PRICE_ADV10", "35.00")))
+PRECIO_ADV25 = float(st.secrets.get("PRICE_ADV25", os.getenv("PRICE_ADV25", "75.00")))
 PACKAGES = {
     f"1 Evaluación — S/ {PRECIO_1:.2f}": {"evals": 1, "price": PRECIO_1, "title": "1 Evaluación - Perspecta Salud"},
     f"3 Evaluaciones — S/ {PRECIO_3:.2f} (Ahorra S/ {3*PRECIO_1 - PRECIO_3:.2f})": {"evals": 3, "price": PRECIO_3, "title": "Paquete 3 Evaluaciones - Perspecta Salud"},
@@ -823,7 +825,11 @@ def verify_payment(payment_id):
         data = mercadopago.SDK(MP_TOKEN).payment().get(str(payment_id)).get("response", {})
         if data.get("status") == "approved" and data.get("currency_id") == "PEN":
             amt = float(data.get("transaction_amount", 0))
-            if amt >= PRECIO_5 - 0.5:
+            if amt >= PRECIO_ADV25 - 0.5:
+                return 25
+            elif amt >= PRECIO_ADV10 - 0.5:
+                return 10
+            elif amt >= PRECIO_5 - 0.5:
                 return 5
             elif amt >= PRECIO_3 - 0.5:
                 return 3
@@ -1029,6 +1035,24 @@ def review():
                             )
                         except Exception:
                             st.error(f"Error al generar link S/ {PRECIO_5:.2f}")
+                st.markdown("#### 🎓 Para asesores y docentes")
+                st.caption("Paquetes grandes para revisar los proyectos de tus tesistas. Pago automático con Mercado Pago, tu código llega en pantalla.")
+                a_col1, a_col2 = st.columns(2)
+                for a_col, a_evals, a_price in ((a_col1, 10, PRECIO_ADV10), (a_col2, 25, PRECIO_ADV25)):
+                    with a_col:
+                        with st.container(border=True):
+                            st.markdown(f"#### 🎓 Pack Asesor {a_evals}")
+                            st.markdown(f"<div style='font-size:32px;font-weight:800;color:#072e68;margin:4px 0;'>S/ {a_price:.2f}</div>", unsafe_allow_html=True)
+                            st.caption(f"1 revisión hoy + Código secreto con {a_evals - 1} usos adicionales (S/ {a_price/a_evals:.2f} por evaluación).")
+                            try:
+                                st.link_button(
+                                    f"⚡ Pagar S/ {a_price:.2f} (Mercado Pago)",
+                                    payment_link(a_price, f"Pack Asesor {a_evals} Evaluaciones - Perspecta Salud"),
+                                    type="primary",
+                                    use_container_width=True
+                                )
+                            except Exception:
+                                st.error(f"Error al generar link S/ {a_price:.2f}")
             else:
                 st.warning("El sistema de pagos automáticos está en mantenimiento.")
 
