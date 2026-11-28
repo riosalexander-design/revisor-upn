@@ -54,7 +54,8 @@ def _get_pg_conn():
     try:
         import psycopg2
         return psycopg2.connect(DATABASE_URL, connect_timeout=5)
-    except Exception:
+    except Exception as e:
+        print("DB connect error:", type(e).__name__, str(e)[:160].replace(DATABASE_URL, "***"), flush=True)
         return None
 
 @st.cache_resource
@@ -84,6 +85,10 @@ def _init_pg_tables():
                     email TEXT PRIMARY KEY,
                     code TEXT NOT NULL,
                     month TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS perspecta_used_payments (
+                    payment_id TEXT PRIMARY KEY,
                     created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS perspecta_crm (
@@ -473,6 +478,44 @@ def send_sample_email(to_email, code):
         return True
     except Exception:
         return False
+
+USED_PAYMENTS_FILE = "used_payments.json"
+
+def claim_payment(payment_id):
+    """True si este payment_id de Mercado Pago se reclama por primera vez (solo puede activarse una vez, en cualquier sesión)."""
+    pid = str(payment_id).strip()
+    if not pid:
+        return False
+    created = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    _init_pg_tables()
+    conn = _get_pg_conn()
+    if conn:
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    cur.execute("INSERT INTO perspecta_used_payments (payment_id, created_at) VALUES (%s, %s) ON CONFLICT (payment_id) DO NOTHING;", (pid, created))
+                    first = cur.rowcount == 1
+            conn.close()
+            return first
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    try:
+        with open(USED_PAYMENTS_FILE, "r", encoding="utf-8") as f:
+            used = json.load(f)
+    except Exception:
+        used = {}
+    if pid in used:
+        return False
+    used[pid] = created
+    try:
+        with open(USED_PAYMENTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(used, f)
+    except Exception:
+        pass
+    return True
 
 def registrar_operacion(proyecto, nivel, etapa, codigo_usado="Pago directo"):
     ip, loc = get_client_ip_and_location()
@@ -1264,12 +1307,15 @@ if page_param == "review":
 if status == "approved" and payment_id:
     purchased_evals = verify_payment(payment_id)
     if purchased_evals > 0:
-        st.session_state.paid = True
         st.session_state.page = "review"
-        if purchased_evals > 1 and not st.session_state.get("generated_pack_code"):
-            extra_uses = purchased_evals - 1
-            st.session_state.generated_pack_code = generate_pack_code(extra_uses)
-            st.session_state.generated_pack_uses = extra_uses
+        if claim_payment(payment_id):
+            st.session_state.paid = True
+            if purchased_evals > 1 and not st.session_state.get("generated_pack_code"):
+                extra_uses = purchased_evals - 1
+                st.session_state.generated_pack_code = generate_pack_code(extra_uses)
+                st.session_state.generated_pack_uses = extra_uses
+        else:
+            st.error("Este pago ya fue utilizado para activar una revisión. Si necesitas ayuda, escríbenos por WhatsApp al +51 913 152 645.")
         st.query_params.clear()
 
 st.session_state.setdefault("page", "home")
