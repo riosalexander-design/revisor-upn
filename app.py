@@ -126,13 +126,16 @@ def _load_codes_db():
                         "created_at": created_at or ""
                     }
             conn.close()
+            print("codes_db source=PG rows=", len(db), flush=True)
             return db
-        except Exception:
+        except Exception as e:
+            print("codes_db PG error:", type(e).__name__, str(e)[:200], flush=True)
             try:
                 conn.close()
             except Exception:
                 pass
 
+    print("codes_db source=LOCAL FILE (sin conexion a la base)", flush=True)
     if not os.path.exists(CODES_FILE):
         with open(CODES_FILE, 'w', encoding='utf-8') as f:
             json.dump({ACCESS_CODE: 99999}, f)
